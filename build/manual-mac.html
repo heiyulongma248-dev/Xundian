@@ -1,0 +1,873 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>寻典 使用说明</title>
+<style>
+  @page {
+    size: A4;
+    margin: 18mm 16mm;
+  }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Times New Roman", "宋体", SimSun, serif;
+    font-size: 11pt;
+    line-height: 1.7;
+    color: #2c3338;
+    margin: 0;
+  }
+  h1 {
+    font-size: 28pt; color: #1a3a6b;
+    text-align: center; margin: 8pt 0 0;
+    letter-spacing: 4pt;
+  }
+  .subtitle {
+    text-align: center; color: #888;
+    font-size: 12pt; margin-bottom: 24pt;
+  }
+  .version-line {
+    text-align: center; font-size: 10pt; color: #aaa;
+    border-top: 1px solid #e0e0e0;
+    border-bottom: 1px solid #e0e0e0;
+    padding: 4pt 0; margin-bottom: 24pt;
+  }
+  h2 {
+    font-size: 16pt; color: #1a3a6b;
+    margin: 24pt 0 6pt;
+    border-bottom: 2px solid #1a3a6b;
+    padding-bottom: 3pt;
+    page-break-after: avoid;
+  }
+  h3 {
+    font-size: 13pt; color: #333; font-weight: 600;
+    margin: 18pt 0 4pt;
+    page-break-after: avoid;
+  }
+  h4 {
+    font-size: 11pt; color: #555; font-weight: 600;
+    margin: 12pt 0 2pt;
+    page-break-after: avoid;
+  }
+  p { margin: 4pt 0; }
+
+  /* 目录 */
+  .toc {
+    background: #f7f8fa; padding: 12pt 18pt;
+    border: 1px solid #e0e4e8; border-radius: 6pt;
+    margin: 12pt 0 24pt;
+  }
+  .toc-title {
+    font-weight: 600; color: #1a3a6b;
+    margin-bottom: 6pt; font-size: 12pt;
+  }
+  .toc-list { list-style: none; padding-left: 0; margin: 0; }
+  .toc-list li { font-size: 10.5pt; padding: 1pt 0; }
+  .toc-list .toc-sub { padding-left: 18pt; color: #666; font-size: 10pt; }
+
+  /* 步骤列表 */
+  ol.steps { padding-left: 0; counter-reset: step; list-style: none; }
+  ol.steps > li {
+    position: relative;
+    padding: 6pt 8pt 6pt 38pt;
+    margin: 6pt 0;
+    background: #f7f8fa; border-radius: 6pt;
+    counter-increment: step;
+  }
+  ol.steps > li::before {
+    content: counter(step);
+    position: absolute; left: 8pt; top: 6pt;
+    width: 22pt; height: 22pt; line-height: 22pt;
+    text-align: center; border-radius: 50%;
+    background: #1a3a6b; color: #fff;
+    font-weight: 600; font-size: 10pt;
+  }
+
+  /* 信息框 */
+  .box {
+    border-left: 4px solid #1a3a6b;
+    background: #f4f7fb;
+    padding: 8pt 12pt;
+    margin: 10pt 0;
+    border-radius: 0 4pt 4pt 0;
+  }
+  .box-warn {
+    border-left-color: #b78612;
+    background: #fef9ee;
+  }
+  .box-tip {
+    border-left-color: #1e823b;
+    background: #ecf9ef;
+  }
+  .box-title {
+    font-weight: 600; margin-bottom: 4pt;
+    color: #1a3a6b; font-size: 11pt;
+  }
+  .box-warn .box-title { color: #92400e; }
+  .box-tip .box-title { color: #065f46; }
+
+  /* UI 元素引用 */
+  .ui {
+    display: inline-block;
+    background: #2563eb; color: #fff;
+    padding: 1pt 8pt; border-radius: 3pt;
+    font-size: 10pt; font-weight: 600;
+    white-space: nowrap;
+  }
+  .ui-tab {
+    background: #fff; color: #1a3a6b;
+    border: 1.5px solid #1a3a6b;
+  }
+  .ui-icon {
+    background: #f4f5f7; color: #555;
+    border: 1px solid #d0d4d9;
+  }
+  code, .path {
+    font-family: "Consolas", "Courier New", monospace;
+    background: #f4f5f7;
+    padding: 1pt 5pt;
+    border-radius: 3pt;
+    font-size: 10pt;
+    color: #c2410c;
+  }
+
+  /* 状态徽章 */
+  .badge { padding: 1pt 8pt; border-radius: 10pt; font-size: 10pt; font-weight: 600; }
+  .badge-hit  { background: #d1fae5; color: #065f46; }
+  .badge-low  { background: #fef3c7; color: #92400e; }
+  .badge-miss { background: #fee2e2; color: #991b1b; }
+  .badge-info { background: #e5e7eb; color: #4b5563; }
+
+  /* 表格 */
+  table {
+    width: 100%; border-collapse: collapse;
+    margin: 10pt 0; font-size: 10.5pt;
+  }
+  th, td {
+    border: 1px solid #d0d4d9;
+    padding: 6pt 10pt; text-align: left;
+    vertical-align: top;
+  }
+  th {
+    background: #eff3f8; font-weight: 600; color: #1a3a6b;
+  }
+
+  /* 流程图风格的步骤示意 */
+  .flow {
+    display: flex; flex-wrap: wrap; gap: 0;
+    margin: 12pt 0; align-items: center;
+  }
+  .flow .step-block {
+    flex: 0 1 auto;
+    background: #eef6ff; border: 1px solid #c7d8eb;
+    color: #1a3a6b; padding: 6pt 12pt;
+    border-radius: 4pt; font-size: 10.5pt;
+    font-weight: 500;
+  }
+  .flow .arrow {
+    color: #888; font-weight: bold; margin: 0 4pt;
+  }
+
+  /* 模拟卡片：用于展示 app 内的 UI 结构 */
+  .demo-card {
+    border: 1px solid #d0d4d9; border-radius: 6pt;
+    padding: 10pt 14pt; margin: 8pt 0;
+    background: #fff;
+  }
+  .demo-quote {
+    background: #fafafa;
+    border-left: 3px solid #2563eb;
+    padding: 4pt 10pt; margin: 6pt 0;
+    font-size: 11pt;
+  }
+  .demo-citation {
+    font-size: 10.5pt; color: #444; padding: 4pt 0;
+  }
+  .highlight-yellow { background: #fef3c7; padding: 0 2pt; }
+
+  /* "界面元素 → 用途" 表 */
+  .ui-table th { background: #f4f7fb; }
+
+  /* 章节分页 */
+  .page-break { page-break-before: always; }
+
+  /* 页脚 */
+  .footer-note {
+    font-size: 9pt; color: #999;
+    border-top: 1px solid #e0e0e0;
+    padding-top: 6pt; margin-top: 24pt;
+    text-align: center;
+  }
+
+  /* 大块注解 */
+  blockquote {
+    margin: 8pt 0;
+    padding: 6pt 12pt;
+    border-left: 3px solid #aaa;
+    background: #fafbfc;
+    color: #555;
+    font-size: 10.5pt;
+  }
+</style>
+</head>
+<body>
+
+<h1>寻 典</h1>
+<p class="subtitle">引文定位与脚注助手 · 使用说明</p>
+<p class="version-line">v1.0 · macOS 版</p>
+
+<!-- ====================================================== -->
+<div class="toc">
+  <div class="toc-title">📖 目录</div>
+  <ul class="toc-list">
+    <li>一、这本说明书是给谁看的</li>
+    <li>二、解压与第一次启动</li>
+    <li>三、整体使用流程速览</li>
+    <li>四、核心概念（书架 / 文件夹 / 引文 / 命中）</li>
+    <li>五、建立你的书架
+      <ul class="toc-list">
+        <li class="toc-sub">5.1 添加 PDF（支持一次多本）</li>
+        <li class="toc-sub">5.2 用文件夹分类管理</li>
+        <li class="toc-sub">5.3 多选模式：批量操作</li>
+        <li class="toc-sub">5.4 编辑书籍出版信息</li>
+        <li class="toc-sub">5.5 重新解析 / 移除书籍</li>
+      </ul>
+    </li>
+    <li>六、文档扫描
+      <ul class="toc-list">
+        <li class="toc-sub">6.1 选择 docx 与扫描过程</li>
+        <li class="toc-sub">6.2 限定查找范围</li>
+        <li class="toc-sub">6.3 看懂结果卡片</li>
+        <li class="toc-sub">6.4 多个候选时怎么挑</li>
+        <li class="toc-sub">6.5 复制脚注 / 导出核对表</li>
+      </ul>
+    </li>
+    <li>七、单句快查</li>
+    <li>八、设置面板（齿轮按钮）</li>
+    <li>九、常见问题</li>
+    <li>十、已知限制与版本说明</li>
+  </ul>
+</div>
+
+<!-- ====================================================== -->
+<h2>一、这本说明书是给谁看的</h2>
+<p>
+你正在写一篇论文或一本书，里面引用了大量古籍 / 文献中的句子。
+按学术规范你需要为每一处引用标注出处——书名、作者、出版社、年份、<strong>具体页码</strong>。
+</p>
+<p>
+传统做法是：翻一本厚书，找到那句话所在的页码，在脚注里写一遍 GB/T 7714 格式。
+几十处引用就要重复几十遍——耗时、易错、还要核对页码是不是 PDF 文档页码而不是书的内文页码。
+</p>
+<p>
+<strong>寻典帮你自动完成这件事</strong>：把你常用的书目（PDF）一次性放进它的"书架"，
+之后扫描你的 docx 文档，它会找出每一处带引号的引文，
+自动定位到对应的书和页码，按 GB/T 7714—2015 国家标准生成脚注。
+</p>
+<div class="box box-tip">
+  <div class="box-title">📌 阅读这份手册不需要任何代码 / 命令行经验</div>
+  整个软件是用鼠标点击操作的图形界面。所有提到的"按钮""标签"在 app 里都能看见、能点。
+</div>
+
+<!-- ====================================================== -->
+<h2>二、解压与第一次启动</h2>
+
+<h3>1. 解压并放入"应用程序"</h3>
+<ol class="steps">
+  <li>找到开发者发给你的 zip（如 <code>寻典-v1.0-mac.zip</code>），双击解压</li>
+  <li>得到 <code>寻典.app</code>（图标是一本书的图案）</li>
+  <li>把 <code>寻典.app</code> 直接拖到"应用程序"文件夹（或留在桌面也可以）</li>
+</ol>
+
+<div class="box box-tip">
+  <div class="box-title">💡 macOS 的 .app 是单一文件夹</div>
+  <code>寻典.app</code> 看起来是一个文件，实际是文件夹（macOS 把它显示成单一图标）。
+  整体移动、复制、重命名都没问题——不像 Windows 版那样需要旁边一个 <code>_internal</code> 目录陪着。
+</div>
+
+<h3>2. 第一次打开（重要！必须右键打开）</h3>
+
+<div class="box box-warn">
+  <div class="box-title">⚠ 直接双击会被 macOS 拦下来</div>
+  寻典是个未经 Apple 公证的应用，第一次打开时 macOS 的 Gatekeeper 会拦住，
+  弹出 "<strong>"寻典"无法打开，因为无法验证开发者</strong>" 这样的提示。<br><br>
+  这<strong>不是</strong>说软件有问题——所有未购买苹果开发者证书（$99/年）的开源 app 都会被这样拦。
+  下面教你怎么用三秒钟绕过。
+</div>
+
+<h4>正确打开方式（首次）：</h4>
+<ol class="steps">
+  <li>在 Finder 里找到 <code>寻典.app</code>（应用程序文件夹或你放的位置）</li>
+  <li><strong>右键单击</strong> <code>寻典.app</code>，从菜单选 <strong>"打开"</strong>
+      <span class="dim">（注意：是右键里的"打开"，不是双击）</span></li>
+  <li>弹出确认对话框："macOS 无法验证开发者……仍要打开吗？"，点 <span class="ui">打开</span></li>
+  <li>之后<strong>每次双击都能直接打开</strong>，不再弹任何提示</li>
+</ol>
+
+<div class="box box-tip">
+  <div class="box-title">💡 macOS 13 / 14 / 15 上略有不同</div>
+  在比较新的 macOS 上，右键 → 打开后可能要在系统设置里再确认一次：<br>
+  <strong>系统设置 → 隐私与安全性</strong>，往下滚找到"已阻止使用 寻典.app 因为来自身份不明的开发者"，
+  右侧点 <strong>"仍要打开"</strong>。然后回到 Finder 双击寻典就能用了。
+</div>
+
+<h3>3. 启动后的界面</h3>
+<ol class="steps">
+  <li>启动需要 2~5 秒</li>
+  <li>主窗口弹出。<strong>第一次打开</strong>会自动停在 <span class="ui ui-tab">📚 我的书架</span> 标签页，
+      显示一张欢迎卡片（因为还没添加任何书）</li>
+  <li>顶部从左到右：寻典 logo / 三个标签 / 右上角的设置齿轮 <span class="ui ui-icon">⚙</span></li>
+  <li>底部是状态栏，长操作时会在这显示进度</li>
+</ol>
+
+<div class="box box-tip">
+  <div class="box-title">💡 添加到 Dock</div>
+  寻典启动后，图标会出现在 Dock 上。<strong>右键 Dock 图标 → 选项 → 在程序坞中保留</strong>，
+  以后就能从 Dock 一键启动，不用每次去应用程序找。
+</div>
+
+<!-- ====================================================== -->
+<div class="page-break"></div>
+<h2>三、整体使用流程速览</h2>
+
+<p>第一次完整跑通寻典只需要做这四步：</p>
+
+<div class="flow">
+  <span class="step-block">① 把书加进书架</span><span class="arrow">→</span>
+  <span class="step-block">② 等自动解析</span><span class="arrow">→</span>
+  <span class="step-block">③ 扫描 docx</span><span class="arrow">→</span>
+  <span class="step-block">④ 复制 / 导出脚注</span>
+</div>
+
+<p>之后日常使用就只是步骤 ③ 和 ④ ——书架是一次配置，长期使用。</p>
+
+<table class="ui-table">
+<tr><th style="width:25%">三个标签页</th><th>用来做什么</th></tr>
+<tr>
+  <td><span class="ui ui-tab">📚 我的书架</span></td>
+  <td>管理你导入的 PDF 书目：添加、分类、补全出版信息、移除等</td>
+</tr>
+<tr>
+  <td><span class="ui ui-tab">📄 文档扫描</span></td>
+  <td>选一份 docx 文档，自动扫描其中所有「""」引文并定位出处</td>
+</tr>
+<tr>
+  <td><span class="ui ui-tab">🔍 单句查询</span></td>
+  <td>不扫整篇文档，只查某一句话的出处</td>
+</tr>
+<tr>
+  <td><span class="ui ui-icon">⚙</span> 设置（右上角）</td>
+  <td>调整匹配相似度、查看数据目录、关于信息等</td>
+</tr>
+</table>
+
+<!-- ====================================================== -->
+<h2>四、核心概念</h2>
+
+<table>
+<tr>
+  <th style="width:22%">概念</th>
+  <th>含义</th>
+</tr>
+<tr>
+  <td><strong>书架</strong></td>
+  <td>你提前导入的 PDF 书籍的集合。寻典查找引文时只在书架里的书查；书架没有的书自然找不到出处。</td>
+</tr>
+<tr>
+  <td><strong>文件夹</strong></td>
+  <td>书架内的分类标签——比如"胡适研究""明史史料""期刊论文"。一本书属于一个文件夹（或不分组）。<strong>方便日后只在某个子集里查找</strong>。</td>
+</tr>
+<tr>
+  <td><strong>解析</strong></td>
+  <td>程序把 PDF 每一页的文字提取出来缓存，便于以后秒查。每本书只解析一次，结果<strong>永久保存</strong>。</td>
+</tr>
+<tr>
+  <td><strong>引文</strong></td>
+  <td>你 docx 文档里所有用 <strong>引号 "" </strong> 包起来的句子（中文弯引号 "" 或英文 "" 都识别）。扫描时把每一处引号内容都拿去查。</td>
+</tr>
+<tr>
+  <td><strong>脚注</strong></td>
+  <td>按 GB/T 7714—2015 国家标准生成的引用条目，例如：<br>
+    <code>胡适. 胡适日记全编·五[M]. 合肥: 安徽教育出版社, 2001: 24.</code>
+  </td>
+</tr>
+<tr>
+  <td><strong>命中 / 未命中</strong></td>
+  <td>
+    <span class="badge badge-hit">✓ 自动命中</span> 在书架里找到完全一致的来源<br>
+    <span class="badge badge-low">⚠ 置信度偏低</span> 找到相似但不完全一致的位置（OCR 误差或引用不精准），需人工核对<br>
+    <span class="badge badge-miss">✗ 未命中</span> 书架里没找到——可能源自其他文献，或这条根本不是真引文（如对话）
+  </td>
+</tr>
+<tr>
+  <td><strong>查找范围</strong></td>
+  <td>每次扫描或查询时，可以限定<strong>只在某些文件夹 / 某几本书</strong>里查，不必每次都扫整个书架。详见 6.2。</td>
+</tr>
+</table>
+
+<!-- ====================================================== -->
+<div class="page-break"></div>
+<h2>五、建立你的书架</h2>
+
+<h3>5.1 添加 PDF（支持一次多本）</h3>
+
+<p>在 <span class="ui ui-tab">📚 我的书架</span> 标签页，右上角可以看到三个按钮：</p>
+<table class="ui-table">
+<tr><th>按钮</th><th>功能</th></tr>
+<tr><td><span class="ui">+ 添加书籍</span></td><td>添加新 PDF 到书架（最常用）</td></tr>
+<tr><td><span class="ui">+ 新建文件夹</span></td><td>建一个空文件夹，之后把书拖进去</td></tr>
+<tr><td><span class="ui">☑ 多选</span></td><td>进入多选模式，对多本书做批量操作</td></tr>
+</table>
+
+<p>添加 PDF 的标准流程：</p>
+<ol class="steps">
+  <li>点 <span class="ui">+ 添加书籍</span></li>
+  <li>弹出文件选择窗口。<strong>按住 Ctrl 键可以选多个 PDF；按住 Shift 键选连续的一段</strong>。选完点"打开"</li>
+  <li>弹出"放入哪个文件夹"对话框（可选）：
+    <ul>
+      <li>选已有文件夹</li>
+      <li>选 <code>+ 新建文件夹…</code> 现场建一个</li>
+      <li>不选（保持"未分组"）也可以</li>
+    </ul>
+  </li>
+  <li>点"继续导入"。程序会逐本快速登记，然后弹出 <strong>解析进度模态框</strong></li>
+  <li>模态框里每本书一行：左侧文件名、中间进度条、右侧"412/898"页码计数</li>
+  <li>所有书解析完后，"取消"按钮自动变成 <span class="ui">完成</span>，点击关闭</li>
+</ol>
+
+<div class="box box-tip">
+  <div class="box-title">💡 解析期间能取消</div>
+  解析进度模态框底部有 <span class="ui">取消解析</span> 按钮——点了之后已经在解析的那本完成后停止，
+  剩余的不再处理。已经解析完的书不丢。后续可以在书架卡片上点 <span class="ui ui-icon">⚙ 解析</span> 继续。
+</div>
+
+<h4>解析需要多久？</h4>
+<table>
+<tr><th>书的厚度</th><th>大约时间</th></tr>
+<tr><td>200 页以下</td><td>5-15 秒</td></tr>
+<tr><td>500 页（如《胡适日记》）</td><td>30-60 秒</td></tr>
+<tr><td>1000 页以上</td><td>1-3 分钟</td></tr>
+</table>
+<p style="font-size: 10pt; color: #888;">
+  解析结果会被缓存。同一本书第二次启动 app 时立即可用，不需要重新解析。
+</p>
+
+<h3>5.2 用文件夹分类管理</h3>
+
+<p>书少的时候不分类也行；超过 5 本以上建议按主题分文件夹，扫描时可以只在相关子集里查找，速度更快、噪声更少。</p>
+
+<h4>新建文件夹</h4>
+<ol class="steps">
+  <li>点书架右上角 <span class="ui">+ 新建文件夹</span></li>
+  <li>输入名字（如"胡适研究""明清史料"），确定</li>
+  <li>新文件夹会作为一行折叠区出现在书架，刚建时是空的</li>
+</ol>
+
+<h4>把书移进文件夹（三种方式）</h4>
+<table>
+<tr><th>方式</th><th>操作</th><th>适用场景</th></tr>
+<tr>
+  <td>① 直接拖动</td>
+  <td>鼠标按住书卡片，拖到目标文件夹的标题区</td>
+  <td>移一两本，最快</td>
+</tr>
+<tr>
+  <td>② 点书卡上的 <span class="ui">📁 移动</span> 按钮</td>
+  <td>弹出选择目标文件夹的小框</td>
+  <td>没法拖（如折叠了）的情况</td>
+</tr>
+<tr>
+  <td>③ 多选 → 批量移动</td>
+  <td>开启多选模式，勾选多本，点工具条 <span class="ui">📁 移到文件夹</span></td>
+  <td>一次移多本到同一个文件夹</td>
+</tr>
+</table>
+
+<h4>重命名 / 删除文件夹</h4>
+<p>每个文件夹标题右侧有 <span class="ui">重命名</span> 和 <span class="ui">删除</span> 两个小按钮。</p>
+<ul>
+  <li><strong>重命名</strong>：弹框输入新名字</li>
+  <li><strong>删除文件夹</strong>：里面的书会自动移到"未分组"，<strong>书本身不删</strong></li>
+</ul>
+
+<h4>折叠 / 展开</h4>
+<p>点文件夹标题（除去按钮区域）即可折叠或展开该文件夹下的书。书多时折叠不常用的文件夹能让书架清爽。</p>
+
+<h3>5.3 多选模式：批量操作</h3>
+
+<p>当你想一次对多本书做相同操作时（比如都重新解析一次），用多选模式：</p>
+
+<ol class="steps">
+  <li>点书架右上角 <span class="ui">☑ 多选</span> 按钮，进入多选模式</li>
+  <li>每本书卡片左侧出现复选框，可点击勾选；点卡片本体也会切换勾选</li>
+  <li>顶部出现工具条：</li>
+</ol>
+
+<table>
+<tr><th>按钮</th><th>作用</th></tr>
+<tr><td><span class="ui">全选</span></td><td>勾选所有书</td></tr>
+<tr><td><span class="ui">取消选择</span></td><td>清空所有勾选</td></tr>
+<tr><td><span class="ui">批量解析</span></td><td>解析所有"待解析"的勾选书</td></tr>
+<tr><td><span class="ui">批量重新解析</span></td><td>清缓存重抽（很少用，仅在缓存损坏时）</td></tr>
+<tr><td><span class="ui">📁 移到文件夹</span></td><td>把勾选的书一起移到某文件夹</td></tr>
+<tr><td><span class="ui">批量移除</span></td><td>从书架移除（PDF 文件不删）</td></tr>
+</table>
+
+<p>结束多选：再点一次按钮（这时显示为 <span class="ui">✕ 退出多选</span>）。</p>
+
+<h3>5.4 编辑书籍出版信息</h3>
+
+<p>新添加的书，作者 / 出版社 / 年份等字段都是占位值（<code>XX</code> 或 <code>XX出版社</code>）。
+建议添加后立即补全，否则生成的脚注里会带占位符。
+书架卡片会以 <span class="badge badge-low">出版信息待补</span> 黄色标签提醒你。</p>
+
+<ol class="steps">
+  <li>找到要编辑的书卡片</li>
+  <li>点卡片右下角 <span class="ui">✏ 编辑</span> 按钮</li>
+  <li>填入所有字段，包括"文件夹"</li>
+  <li>点"确定"保存</li>
+</ol>
+
+<h4>文献类型代码</h4>
+<table>
+<tr><th>代码</th><th>含义</th></tr>
+<tr><td><code>M</code></td><td>专著（最常见，默认）</td></tr>
+<tr><td><code>J</code></td><td>期刊文章</td></tr>
+<tr><td><code>N</code></td><td>报纸文章</td></tr>
+<tr><td><code>D</code></td><td>学位论文</td></tr>
+<tr><td><code>R</code></td><td>研究报告</td></tr>
+</table>
+
+<h3>5.5 重新解析 / 移除书籍</h3>
+
+<p>每张书卡片上有一组小按钮，作用各异：</p>
+<table>
+<tr>
+  <td><span class="ui">📁 移动</span></td>
+  <td>移到其他文件夹</td>
+</tr>
+<tr>
+  <td><span class="ui">✏ 编辑</span></td>
+  <td>修改出版信息</td>
+</tr>
+<tr>
+  <td><span class="ui">⚙ 解析</span></td>
+  <td>仅未解析的书才有；点击启动解析</td>
+</tr>
+<tr>
+  <td><span class="ui">🔄 重新解析</span></td>
+  <td>仅已解析的书才有；清除缓存重抽。<strong>通常不需要用</strong>——只在某次缓存损坏或软件升级了抽取逻辑时才有意义</td>
+</tr>
+<tr>
+  <td><span class="ui">🗑 移除</span></td>
+  <td>从书架移除。<strong>不会删除你电脑上的 PDF 原文件</strong>——只是从书架名单去掉</td>
+</tr>
+</table>
+
+<!-- ====================================================== -->
+<div class="page-break"></div>
+<h2>六、文档扫描</h2>
+
+<h3>6.1 选择 docx 与扫描过程</h3>
+
+<ol class="steps">
+  <li>切到 <span class="ui ui-tab">📄 文档扫描</span> 标签页</li>
+  <li>查看顶部"📂 查找范围"——默认是 <strong>全部书架</strong>，如想限定可点 <span class="ui">更改</span>（详见 6.2）</li>
+  <li>点 <span class="ui">📂 选择 docx 文件</span></li>
+  <li>选中你要核对引文的 Word 文档（必须是 <code>.docx</code>，不支持老的 <code>.doc</code>）</li>
+</ol>
+
+<h4>扫描过程会经历这些阶段：</h4>
+<ol class="steps">
+  <li><strong>统计引文总数</strong>：先扫一遍文档，找出所有用引号 "" 包起来的句子。
+      底部状态栏显示 <code>找到 32 条引文，准备开始查询…</code></li>
+  <li><strong>加载书架数据</strong> + <strong>预处理书目文本</strong>：从缓存读所有相关书的文字，做归一化（简繁、全角、标点等统一）</li>
+  <li><strong>逐条查询</strong>：每查完一条立即在窗口里显示一张结果卡片。状态栏显示 <code>扫描中 13/32</code> 进度</li>
+  <li><strong>完成提示</strong>：全部查完弹出汇总对话框：共 N 条 / 命中 X / 偏低 Y / 未找到 Z</li>
+</ol>
+
+<div class="box box-tip">
+  <div class="box-title">💡 不用等扫完才看结果</div>
+  程序<strong>边查边出</strong>。第一张卡片可能 1-2 秒就出现了，
+  你可以一边浏览前面的结果，程序一边继续查后面的。
+</div>
+
+<h3>6.2 限定查找范围</h3>
+
+<p>默认会在<strong>整个书架</strong>里查每一条引文。当书架越来越大时，限定范围有两个好处：</p>
+<ol>
+  <li><strong>更快</strong>——只搜索相关的几本，速度按比例提升</li>
+  <li><strong>更准</strong>——避免无关书里恰好同字偶发的误命中</li>
+</ol>
+
+<h4>设置范围的步骤</h4>
+<ol class="steps">
+  <li>在 <span class="ui ui-tab">📄 文档扫描</span> 顶部找到"📂 查找范围"卡片，点 <span class="ui">更改</span></li>
+  <li>弹出"选择查找范围"对话框，是一棵树形结构：
+    <ul>
+      <li>顶部有 <strong>全部书架</strong> 总开关</li>
+      <li>下面是每个文件夹（带勾选框，可整体勾选）</li>
+      <li>每个文件夹展开后是该文件夹里的书（可单独勾选）</li>
+      <li>最下方是"未分组"组（把不在任何文件夹的书归到这）</li>
+    </ul>
+  </li>
+  <li>勾选你想包括的文件夹或单本书</li>
+  <li>点"确定"。卡片显示"📁 胡适研究、📁 明清史料 （6 本）"等概要</li>
+</ol>
+
+<div class="box box-tip">
+  <div class="box-title">💡 半选标记</div>
+  当一个文件夹下只有<strong>部分</strong>书被勾选时，文件夹复选框会显示"半选"小横线 — 状态。
+  此时点该复选框会一键全选或全不选其下所有书。
+</div>
+
+<p><strong>单句查询</strong>页签也有同样的查找范围卡片，独立设置（互不干扰）。</p>
+
+<h3>6.3 看懂结果卡片</h3>
+
+<div class="demo-card">
+  <p><span class="badge badge-hit">✓ 自动命中</span>　<strong>[1] 引文</strong></p>
+  <div class="demo-quote">不便带他去</div>
+  <p class="demo-citation"><strong>出处（建议）：</strong>胡适. 胡适家书[M]. 合肥: 安徽教育出版社, 2001: 131.</p>
+  <p style="font-size: 10pt; color: #888;"><strong>原文上下文：</strong>……招待所须自备铺盖，<span class="highlight-yellow">「不便带他去」</span>，遂权衡再三……</p>
+  <p style="font-size: 10pt;"><strong>命中位置：</strong>胡适家书.pdf · PDF p153 · 书内 p131</p>
+  <p style="font-size: 10pt; color: #888;">主分 1.00 · 语境分 0.32 · 综合 1.03</p>
+  <p style="font-size: 10pt;"><strong>书中片段：</strong>……我本想带祖望去，后来因为招待所须带铺盖，故<span class="highlight-yellow">「不便带他去」</span>。若把他交给大姊……</p>
+  <p style="font-size: 10pt;"><span class="ui">📋 复制脚注</span> <span class="ui">📖 在 PDF 中查看</span></p>
+</div>
+
+<table>
+<tr>
+  <th style="width:25%">字段</th>
+  <th>解释</th>
+</tr>
+<tr><td>状态徽章</td><td>左上角的 ✓ / ⚠ / ✗ 标签，一眼看出该条是否找到</td></tr>
+<tr><td>引文</td><td>你 docx 里的原句（去掉了引号）</td></tr>
+<tr><td>出处（建议）</td><td>程序按 GB/T 7714 拼出的脚注。<strong>这里的页码是书内页码（书右下角印的那个），不是 PDF 文档页码。</strong></td></tr>
+<tr><td>原文上下文</td><td>引文在你 docx 里前后各 30 字。便于你回头看引文用在什么地方</td></tr>
+<tr><td>命中位置</td><td>书架里哪一本、PDF 第几页、书内第几页。跨页命中会显示如 <code>p131-132（跨页）</code></td></tr>
+<tr><td>主分 / 语境分 / 综合</td><td>匹配置信度。主分 1.00 = 完全一致；越接近 1 越可信。语境分用于多本同时命中时挑最相关的那本</td></tr>
+<tr><td>书中片段</td><td>书里命中位置前后那一段原文，可一眼比对是否就是你要找的</td></tr>
+</table>
+
+<h4>卡片上的两个按钮</h4>
+<table>
+<tr>
+  <td><span class="ui">📋 复制脚注</span></td>
+  <td>把这一条的脚注文本复制到剪贴板，可直接粘到 Word</td>
+</tr>
+<tr>
+  <td><span class="ui">📖 在 PDF 中查看</span></td>
+  <td>用 Edge 浏览器打开该 PDF 并<strong>自动跳到对应页</strong>，便于二次核实</td>
+</tr>
+</table>
+
+<h3>6.4 多个候选时怎么挑</h3>
+
+<p>有时同一句话在几本不同的书里都出现过（比如 "有肺病" 同时出现在胡适日记和家书里）。
+寻典会按"语境匹配度"排序，把最可能的那本作为推荐主项；其他列在下方的"<strong>其他疑似候选</strong>"区块。</p>
+
+<p>每个候选都附带：书 + 页码、相似度分数、书中片段。<strong>对照"书中片段"挑最贴近你 docx 上下文的那个</strong>，
+点该候选的 <span class="ui">📖 在 PDF 中查看</span> 进一步核对。</p>
+
+<blockquote>
+有时程序的"推荐"未必正确，比如多本书里都有同一句但语境分难以拉开差距。
+所以候选列表存在的意义就是<strong>把决定权交给你</strong>——程序只给提示，最终选谁由你判断。
+</blockquote>
+
+<h3>6.5 复制脚注 / 导出核对表</h3>
+
+<p>所有引文扫完后，文档扫描页底部出现两个按钮：</p>
+
+<table>
+<tr>
+  <td style="width:32%"><span class="ui">📋 复制全部脚注</span></td>
+  <td>把所有 <strong>"自动命中"</strong> 的脚注一次性合并复制到剪贴板，可直接粘进 Word。
+      <span class="dim">（"置信度偏低"和"未找到"的不会自动复制——这些需要你人工核对，强行复制可能出错）</span></td>
+</tr>
+<tr>
+  <td><span class="ui">💾 导出核对表 docx</span></td>
+  <td>生成完整的 Word 文档，包含每条引文的脚注、上下文、书中片段、所有候选、书目 OCR 质量统计。
+      中文宋体、英文 Times New Roman，可直接打印或交给同行评审</td>
+</tr>
+</table>
+
+<!-- ====================================================== -->
+<div class="page-break"></div>
+<h2>七、单句快查</h2>
+
+<p>有时你只想确认<strong>某一句话</strong>出自哪里，没必要扫整篇文档。这时用 <span class="ui ui-tab">🔍 单句查询</span>。</p>
+
+<ol class="steps">
+  <li>切到 <span class="ui ui-tab">🔍 单句查询</span> 标签页</li>
+  <li>顶部"📂 查找范围"和文档扫描的独立——可单独限定</li>
+  <li>在"引文"输入框里贴入要查的句子（<strong>不要带引号</strong>）；
+      右侧 <span class="ui ui-icon">✕</span> 可一键清空</li>
+  <li>"上下文"可填可不填——填上前后几个字能让结果更准（同一句出现在多本书时帮助挑对的那本）</li>
+  <li>点 <span class="ui">🔍 查询</span>，<strong>或者直接按 Ctrl+Enter</strong></li>
+  <li>结果卡片显示在下方，格式与文档扫描完全一致</li>
+</ol>
+
+<div class="box box-tip">
+  <div class="box-title">💡 适合的场景</div>
+  · 写作中突然想引用一句话，记不清出自哪本<br>
+  · 同行评审说某条出处可疑，快速复核<br>
+  · 想看看某句话在书架里出现过几次（多个候选会全部列出）
+</div>
+
+<!-- ====================================================== -->
+<h2>八、设置面板（齿轮按钮）</h2>
+
+<p>点窗口右上角的齿轮按钮 <span class="ui ui-icon">⚙</span> 打开设置面板。普通用户保持默认即可；以下情况可以试着调：</p>
+
+<h3>8.1 三个匹配参数</h3>
+
+<table>
+<tr>
+  <th>参数</th>
+  <th>默认值</th>
+  <th>调整方向 & 适用场景</th>
+</tr>
+<tr>
+  <td><strong>匹配相似度阈值</strong></td>
+  <td>0.85</td>
+  <td>
+    <strong>调高</strong>（如 0.95）：结果更严格，未命中变多但更可信<br>
+    <strong>调低</strong>（如 0.70）：结果更宽松，能找回 OCR 模糊的引文，但误判变多
+  </td>
+</tr>
+<tr>
+  <td><strong>语境分权重</strong></td>
+  <td>0.10</td>
+  <td>
+    多本书都命中同一句时，前后文相似度的影响力。一般不用动。<br>
+    如发现"推荐"经常错（同字不同义的多本书争议时），可调到 0.20-0.30 让语境更主导
+  </td>
+</tr>
+<tr>
+  <td><strong>每条最多列出候选数</strong></td>
+  <td>3</td>
+  <td>每条引文最多展示几条候选（含推荐项）。多了占空间，少了可能漏掉真的来源</td>
+</tr>
+</table>
+
+<p>三个参数都是 <strong>滑块</strong>，旁边数字实时变化。改完点 <span class="ui">保存</span>。</p>
+
+<h3>8.2 数据 / 关于</h3>
+
+<p>设置面板下方还有"数据"和"关于"两块：</p>
+<ul>
+  <li><span class="ui">📂 打开数据目录</span>——直接用 Finder 打开 <code>~/Library/Application Support/XunDian/</code>，
+      里面是 books.json / cache / settings.json。
+      <strong>通常不用动这些文件。</strong>如果想"重置成全新的寻典"，关掉 app 后删除这整个文件夹即可</li>
+  <li><span class="ui">恢复默认</span>——把三个参数滑回默认值（保存才生效）</li>
+  <li>"关于"区显示 <strong>应用版本 / Python 版本 / 数据目录路径 / 关键依赖状态</strong>（opencc 是否可用等）</li>
+</ul>
+
+<div class="box box-tip">
+  <div class="box-title">💡 找不到"资源库"文件夹？</div>
+  <code>~/Library</code>（资源库）默认在 Finder 里是隐藏的。打开数据目录最方便就是从设置面板点
+  <span class="ui">📂 打开数据目录</span>。<br>
+  也可以在 Finder 里按 <code>Cmd + Shift + G</code>（前往文件夹），输入路径直达。
+</div>
+
+<!-- ====================================================== -->
+<div class="page-break"></div>
+<h2>九、常见问题</h2>
+
+<h3>扫描结果"未命中"特别多怎么办</h3>
+<p>常见原因（按可能性排序）：</p>
+<ol>
+  <li><strong>书架里没有相关的书</strong>——添加更多 PDF 后再扫</li>
+  <li><strong>查找范围太窄</strong>——检查"📂 查找范围"是否限定到了不相关的几本书</li>
+  <li><strong>引文被你修改过</strong>（删了几个字、改了标点）——程序模糊匹配能容忍小幅差异，但改得太多会找不到</li>
+  <li><strong>文档里的引号其实不是真引文</strong>——比如对话、强调、专有名词。这些"未命中"是正常的</li>
+  <li><strong>PDF 是图片扫描件</strong>，文字层缺失——查看书架上书卡的"低质量"标签</li>
+</ol>
+
+<h3>页码标错了</h3>
+<p>
+寻典区分"PDF 页码"和"书内页码"——同一页 PDF 文档可能是封面后第 153 页，但书内页码（书右下角印的那个）是 131。
+脚注里用的是<strong>书内页码</strong>，符合学术规范。
+</p>
+<p>
+如果发现标错（很罕见），多半是因为该书页码识别失败。可以点"在 PDF 中查看"亲自核对一下，
+然后在导出的 Word 核对表里手动改正。
+</p>
+
+<h3>添加 PDF 后解析失败 / 卡住</h3>
+<p>
+关掉解析进度模态后重启 app，在书架上对那本书点 <span class="ui">⚙ 解析</span> 按钮重试。
+反复失败的话，可能是该 PDF 带密码保护或文件损坏——可以用 Adobe Reader 打开看看是否正常。
+</p>
+
+<h3>点"在 PDF 中查看"没跳到指定页</h3>
+<p>
+程序优先用 Chrome / Edge / Safari 打开（这些浏览器自带 PDF 查看器，支持锚点跳页）。
+如果你电脑上以上三个浏览器都没装（极罕见），会回退到系统默认 PDF 应用，
+而 macOS 自带的 <strong>Preview（预览）通常不支持自动跳页</strong>——只能打开第一页。<br><br>
+<strong>解决</strong>：装一个 Chrome 或确保 Safari 没被禁用即可。
+</p>
+
+<h3>导出的 Word 字体不一致</h3>
+<p>
+寻典生成的核对表中文用宋体、英文/数字用 Times New Roman。如果你打开后看到字体不一致，
+可能是 Word 在用其他主题字体覆盖。打开 Word 顶栏"设计"→"字体"，选"Office"主题即可恢复。
+</p>
+
+<h3>书架里删了文件夹，里面的书还在吗</h3>
+<p>
+在。删除文件夹只是删了"分类标签"——书会自动移到"未分组"分组里，<strong>书本身和元信息都不丢</strong>。
+</p>
+
+<h3>能不能改了 books.json 直接生效</h3>
+<p>
+理论上可以，但<strong>不推荐</strong>——格式有 v2 版本要求（有 folders / books 两个字段）。
+最稳妥的方式是通过 app 界面操作。如果不小心改坏了，删除 <code>books.json</code> 重启 app 会从零开始（书架变空）。
+</p>
+
+<h3>能在 Windows 上用吗</h3>
+<p>有 Windows 版（开发者另外提供 <code>寻典-v1.0-windows.zip</code>）。功能完全一样，只是双击运行的是 <code>寻典.exe</code>。</p>
+
+<h3>关闭 app 后再次打开会提示什么吗</h3>
+<p>不会。第一次右键打开后，macOS 已记住你信任这个 app，之后双击直接启动，不会再有任何提示。</p>
+
+<h3>能把 .app 拷给同事用吗</h3>
+<p>可以。把整个 <code>寻典.app</code> 直接拖给对方（zip 一下更稳），对方解压后<strong>同样需要右键 → 打开</strong>第一次。
+书架数据是各人独立的（在各自的 <code>~/Library/Application Support/XunDian/</code>），互不影响。</p>
+
+<h3>Apple Silicon (M1/M2/M3) 还是 Intel Mac</h3>
+<p>取决于打包人的 Mac 是什么架构：在 Apple Silicon Mac 上打包出的 .app 是 arm64 原生的（在 M1+ 上跑得最快），
+在 Intel Mac 上打包出的是 x86_64（也能在 Apple Silicon 上跑，但通过 Rosetta 略慢）。两种都是 64 位。</p>
+
+<h3>支持 doc / pages / 其他格式吗</h3>
+<p>当前只支持 <code>.docx</code> 输入和 PDF 书库。如有需要可在反馈里提。</p>
+
+<!-- ====================================================== -->
+<h2>十、已知限制与版本说明</h2>
+
+<h3>v1.0 已知限制</h3>
+<ul>
+  <li><strong>只能匹配 PDF 自带文字层</strong>。纯图片扫描的 PDF 找不到（书架里会显示低质量标签提醒你）</li>
+  <li><strong>不会自动写脚注到原 docx 里</strong>。当前生成核对表 + 复制脚注两种方式，研究者需要把脚注粘贴到正文。下一版会做"一键插入脚注到原文档"</li>
+  <li><strong>引文长度小于 3 字</strong>（如 "好" "嗯"）会被自动忽略，避免对话引号误命中</li>
+  <li><strong>同一句出现多次</strong>时，程序按语境分排序选最相关的，但若全部书的语境都很弱，可能选错——人工核对一下"其他疑似候选"</li>
+  <li><strong>多选模式与拖动互斥</strong>：开启多选时不能拖动书卡。退出多选才能拖</li>
+  <li><strong>暂不支持图片型 PDF 的 OCR</strong>。如果某本书是纯图片扫描，需要先用其他工具加上文字层（比如 Adobe Acrobat 的"文字识别"）再添加进书架</li>
+</ul>
+
+<h3>反馈与帮助</h3>
+<p>遇到问题、想要新功能、看到 bug，请把以下信息告诉开发者：</p>
+<ul>
+  <li>问题的简短描述（一两句话即可）</li>
+  <li>什么操作之后出现的</li>
+  <li>窗口底部状态栏显示了什么</li>
+  <li>如果可能，把 <code>%APPDATA%\XunDian\</code> 整个文件夹打包发来（脱敏后）</li>
+</ul>
+
+<p class="footer-note">
+寻典 v1.0 · Windows 内测版 · 2026<br>
+本说明书与软件功能保持同步
+</p>
+
+</body>
+</html>

@@ -1,0 +1,62 @@
+# ============================================================
+# 寻典 .gitignore
+# ============================================================
+
+# —— Python 字节码 ——
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+
+# —— 虚拟环境 ——
+.venv/
+.venv-*/
+venv/
+env/
+ENV/
+
+# —— PyInstaller 中间产物 + 构建产物 ——
+build/寻典/
+build/xundian/
+build/icon.iconset/
+build/icon.icns
+build/manual.pdf
+build/out/
+*.spec.bak
+
+# 分发产物（可重建，不入库）
+dist/
+
+# —— IDE ——
+.idea/
+.vscode/
+*.iml
+
+# —— 操作系统 ——
+.DS_Store
+**/.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# —— 大型测试数据（用户私有书库 + 测试样本，不应提交）——
+Books/
+引文app测试*/
+引文app测试*.zip
+*.zip
+
+# —— 运行时缓存（PDF 文字层缓存，每个用户机器自己生成）——
+cache/
+
+# —— 生成的输出文档 ——
+引文核对表.docx
+
+# —— 备份与临时 ——
+*.bak
+*.tmp
+*~
+.~*
+
+# —— 日志 ——
+*.log

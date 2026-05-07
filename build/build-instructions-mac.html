@@ -1,0 +1,188 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>寻典 Mac 构建说明</title>
+<style>
+  @page { size: A4; margin: 16mm; }
+  * { box-sizing: border-box; }
+  body {
+    font-family: "Times New Roman", "宋体", SimSun, serif;
+    font-size: 11pt;
+    line-height: 1.7;
+    color: #2c3338;
+    margin: 0;
+  }
+  h1 {
+    font-size: 22pt; color: #1a3a6b;
+    text-align: center; margin: 0 0 4pt;
+  }
+  .subtitle {
+    text-align: center; color: #888; font-size: 11pt; margin-bottom: 16pt;
+  }
+  h2 {
+    font-size: 14pt; color: #1a3a6b;
+    margin: 14pt 0 4pt; border-bottom: 1.5px solid #1a3a6b;
+    padding-bottom: 2pt;
+  }
+  p { margin: 4pt 0; }
+  ol.steps { padding-left: 0; counter-reset: step; list-style: none; }
+  ol.steps > li {
+    position: relative; padding: 6pt 8pt 6pt 36pt; margin: 6pt 0;
+    background: #f7f8fa; border-radius: 5pt;
+    counter-increment: step;
+  }
+  ol.steps > li::before {
+    content: counter(step);
+    position: absolute; left: 8pt; top: 6pt;
+    width: 22pt; height: 22pt; line-height: 22pt;
+    text-align: center; border-radius: 50%;
+    background: #1a3a6b; color: #fff;
+    font-weight: 600; font-size: 10pt;
+  }
+  .box {
+    border-left: 4px solid #1a3a6b; background: #f4f7fb;
+    padding: 8pt 12pt; margin: 8pt 0; border-radius: 0 4pt 4pt 0;
+  }
+  .box-warn { border-left-color: #b78612; background: #fef9ee; }
+  .box-tip  { border-left-color: #1e823b; background: #ecf9ef; }
+  .box-title { font-weight: 600; margin-bottom: 4pt; color: #1a3a6b; font-size: 11pt; }
+  .box-warn .box-title { color: #92400e; }
+  .box-tip  .box-title { color: #065f46; }
+  code, .path {
+    font-family: "Consolas", "Courier New", monospace;
+    background: #f4f5f7; padding: 1pt 5pt; border-radius: 3pt;
+    font-size: 10pt; color: #c2410c;
+  }
+  pre {
+    background: #2c3338; color: #f4f5f7;
+    padding: 8pt 12pt; border-radius: 5pt;
+    font-family: "Consolas", "Courier New", monospace;
+    font-size: 10pt; line-height: 1.5; overflow-x: auto;
+  }
+  table {
+    width: 100%; border-collapse: collapse; margin: 8pt 0; font-size: 10.5pt;
+  }
+  th, td { border: 1px solid #d0d4d9; padding: 5pt 8pt; text-align: left; vertical-align: top; }
+  th { background: #eff3f8; font-weight: 600; color: #1a3a6b; }
+  .footer-note {
+    font-size: 9pt; color: #999;
+    border-top: 1px solid #e0e0e0;
+    padding-top: 4pt; margin-top: 18pt; text-align: center;
+  }
+  .highlight-step {
+    background: #fff7e6; border: 2px solid #f5c842;
+    padding: 12pt 16pt; border-radius: 6pt;
+    margin: 10pt 0;
+  }
+</style>
+</head>
+<body>
+
+<h1>寻典 Mac 构建说明</h1>
+<p class="subtitle">一页指南 · 给愿意帮忙在 Mac 上打包的人</p>
+
+<h2>这是什么</h2>
+<p>
+你拿到的"<strong>寻典 Mac 构建包</strong>"是一份源代码 + 自动构建脚本。
+你只需要在一台 Mac 上花 2-3 分钟，就能产出一个可发给非技术用户的 <code>寻典.app</code>。
+</p>
+
+<div class="box">
+  <div class="box-title">📌 你需要的</div>
+  · 一台 Mac（macOS 10.13 High Sierra 或更新都行；Apple Silicon / Intel 都行）<br>
+  · 网络（脚本会通过 pip 下载约 50 MB 依赖，仅首次需要）<br>
+  · Python 3.10 或更新（如未装，脚本会教你怎么装）
+</div>
+
+<h2>三步搞定</h2>
+
+<div class="highlight-step">
+<ol class="steps">
+  <li>
+    <strong>解压"寻典 Mac 构建包.zip"</strong> 到桌面或任何位置（双击即可）
+  </li>
+  <li>
+    打开解压后的文件夹 → 找到 <code>构建寻典.command</code><br>
+    <strong>右键单击 → 选"打开"</strong>（首次必须右键，绕过 Gatekeeper）<br>
+    <span style="color:#888;font-size:10pt;">弹出确认对话框时点"打开"。<br>
+    之后每次双击都能直接运行。</span>
+  </li>
+  <li>
+    终端窗口自动弹出，开始构建。<strong>什么都不用操作</strong>——等它跑完即可（首次约 2-3 分钟，后续约 30 秒）。
+  </li>
+</ol>
+</div>
+
+<p>构建完成后，Finder 会自动弹出，已选中产出文件 <code>dist/寻典.app</code>。
+脚本会输出类似：</p>
+<pre>>>> 6/6  完成！
+
+  📦 产出：~/Desktop/寻典 Mac 构建包/dist/寻典.app（约 80 MB）
+  📖 配套手册：~/Desktop/寻典 Mac 构建包/dist/寻典使用说明.pdf
+
+下一步：
+  1. 把 dist/寻典.app 和 dist/寻典使用说明.pdf 一起压成 zip
+  2. 把 zip 发给最终用户
+  3. 用户解压后右键 → 打开 寻典.app（首次需绕过 Gatekeeper）
+
+✓ 全部完成</pre>
+
+<h2>遇到问题怎么办</h2>
+
+<table>
+<tr><th style="width:42%">脚本提示</th><th>怎么处理</th></tr>
+<tr>
+  <td><strong>未找到 Python 3</strong></td>
+  <td>脚本会自动打开 Python 官网下载页。下载 <code>macOS 64-bit universal2 installer</code>（.pkg），双击安装一路下一步。装完<strong>再次双击 <code>构建寻典.command</code></strong>。</td>
+</tr>
+<tr>
+  <td><strong>Python 版本太旧</strong></td>
+  <td>同上，去 python.org 下新版（推荐 3.12 或 3.13）。</td>
+</tr>
+<tr>
+  <td><strong>依赖安装失败</strong></td>
+  <td>检查网络（pip 需要联网）。如果在国内网络受限，可以让脚本走清华镜像（联系开发者获取改后的脚本）。</td>
+</tr>
+<tr>
+  <td><strong>PyInstaller 打包失败</strong></td>
+  <td>把整个终端窗口截图发给开发者。最常见原因是依赖装到了不同 Python 解释器——重启终端再来一次往往能解决。</td>
+</tr>
+<tr>
+  <td><strong>"开发者无法验证"弹窗</strong></td>
+  <td>这是正常的 Gatekeeper 拦截。<strong>右键 <code>构建寻典.command</code> → 打开</strong>，弹窗里再点"打开"。仅首次需要。</td>
+</tr>
+</table>
+
+<h2>分发产物</h2>
+
+<p>构建完成后，<code>dist/</code> 目录里有两个东西要发给最终用户：</p>
+
+<table>
+<tr><th>文件</th><th>说明</th></tr>
+<tr><td><code>寻典.app</code></td><td>主程序，约 80 MB</td></tr>
+<tr><td><code>寻典使用说明.pdf</code></td><td>面向最终用户的图文手册</td></tr>
+</table>
+
+<p>把这两个一起选中，右键 → 压缩 → 得到一个 zip 文件，发给最终用户即可。</p>
+
+<div class="box box-warn">
+  <div class="box-title">⚠ 不要把整个"寻典 Mac 构建包"文件夹发给最终用户</div>
+  最终用户只需要 <code>寻典.app</code> 和使用说明 PDF。源代码和构建脚本是你（构建者）的工作目录，发给他们没用，还可能造成困扰。
+</div>
+
+<h2>小知识</h2>
+
+<ul style="font-size:10.5pt;line-height:1.8;">
+  <li><strong>构建结果跟着 Mac 架构走</strong>：Apple Silicon Mac 出的 .app 在 M1+ 上跑得最快；Intel Mac 出的是 x86_64 通用版，能在所有 Mac 上跑（M1+ 上通过 Rosetta，略慢）</li>
+  <li><strong>第一次构建慢，之后快</strong>：脚本会创建 <code>.venv-mac-build/</code> 虚拟环境，下次运行直接复用</li>
+  <li><strong>清理重来</strong>：删除 <code>.venv-mac-build/</code> 和 <code>dist/</code>、<code>build/寻典/</code>，再次双击脚本即可全新构建</li>
+</ul>
+
+<p class="footer-note">
+寻典 v1.0 · Mac 构建说明 · 2026<br>
+如有任何问题，请联系开发者
+</p>
+
+</body>
+</html>

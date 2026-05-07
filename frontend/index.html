@@ -1,0 +1,166 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+  <meta charset="UTF-8" />
+  <title>寻典</title>
+  <link rel="stylesheet" href="style.css" />
+</head>
+<body>
+
+<header class="topbar">
+  <div class="brand">
+    <img class="logo" src="icon.png" alt="寻典" />
+    <span class="title">寻典</span>
+    <span class="subtitle">引文定位与脚注助手 · v1.0</span>
+  </div>
+  <nav class="tabs">
+    <button class="tab-btn" data-tab="library">📚 我的书架</button>
+    <button class="tab-btn active" data-tab="scan">📄 文档扫描</button>
+    <button class="tab-btn" data-tab="lookup">🔍 单句查询</button>
+  </nav>
+  <button class="btn-icon" id="btn-settings" title="设置">⚙</button>
+</header>
+
+<main>
+  <!-- ========== 书架 ========== -->
+  <section class="tab-panel" id="tab-library">
+    <div class="panel-header">
+      <h2>我的书架</h2>
+      <div>
+        <button class="btn-secondary" id="btn-toggle-multiselect">☑ 多选</button>
+        <button class="btn-secondary" id="btn-new-folder">+ 新建文件夹</button>
+        <button class="btn-primary" id="btn-add-book">+ 添加书籍</button>
+      </div>
+    </div>
+    <p class="hint">支持一次选多本 PDF（按住 Ctrl/Shift 多选）。添加后程序只记录路径，不复制文件——请勿移动或重命名原 PDF。出版信息可以晚点在卡片上点「编辑」补。</p>
+    <p class="hint" style="background:#fffbe6;border-left:3px solid #f5c842;padding:8px 12px;border-radius:4px;color:#665;">
+      💡 <b>移动书籍到文件夹</b>的方式：①直接拖动书卡到目标文件夹；②点书卡上的「📁 移动」按钮；③多选模式下批量移动。
+    </p>
+
+    <!-- 多选工具条：仅在 multiselect 模式下显示 -->
+    <div id="multiselect-toolbar" class="multiselect-toolbar hidden">
+      <span class="ms-count">已选 <b id="ms-count-num">0</b> 本</span>
+      <div class="ms-actions">
+        <button class="btn-tiny" id="ms-select-all">全选</button>
+        <button class="btn-tiny" id="ms-clear">取消选择</button>
+        <button class="btn-tiny" id="ms-batch-parse">批量解析</button>
+        <button class="btn-tiny" id="ms-batch-reparse">批量重新解析</button>
+        <button class="btn-tiny" id="ms-batch-move">📁 移到文件夹</button>
+        <button class="btn-tiny btn-tiny-danger" id="ms-batch-remove">批量移除</button>
+      </div>
+    </div>
+    <div id="book-list" class="book-list"></div>
+    <div id="book-empty" class="empty-state hidden">
+      <div class="welcome-card">
+        <div class="welcome-icon">📚</div>
+        <h3>欢迎使用寻典</h3>
+        <p class="welcome-tagline">把你常引用的研究文献加进书架，写作时一秒定位引文出处。</p>
+        <ol class="welcome-steps">
+          <li><b>添加 PDF 文献</b> — 一次可选多本（按住 Ctrl / Shift）</li>
+          <li><b>等待自动解析</b> — 大书首次约 30 秒到 2 分钟，之后用缓存秒开</li>
+          <li>切到 <b>📄 文档扫描</b> — 把你的 docx 选进来，结果会一条条实时显示</li>
+        </ol>
+        <button class="btn-primary btn-large" id="btn-welcome-add">+ 添加你的第一本书</button>
+        <p class="welcome-note">书架元数据保存在 <code id="welcome-data-dir">…</code></p>
+      </div>
+    </div>
+  </section>
+
+  <!-- ========== 文档扫描 ========== -->
+  <section class="tab-panel active" id="tab-scan">
+    <div class="panel-header">
+      <h2>文档扫描</h2>
+    </div>
+    <p class="hint">选择一份 docx 文档；程序会扫描其中**所有**「""」内的引文，到书架里找出处。无关引号（如对话）找不到匹配会被标"未命中"，不影响真实引文的核对。</p>
+
+    <div class="scope-card" id="scan-scope-card">
+      <span class="scope-label">📂 查找范围：</span>
+      <span class="scope-summary" id="scan-scope-summary">全部书架</span>
+      <button class="btn-tiny" id="scan-scope-edit">更改</button>
+    </div>
+
+    <div class="upload-zone" id="scan-dropzone">
+      <p>把 docx 拖到这里 — 或者 —</p>
+      <button class="btn-primary" id="btn-pick-docx">📂 选择 docx 文件</button>
+      <p class="meta" id="scan-current-file"></p>
+    </div>
+
+    <div id="scan-summary" class="summary hidden"></div>
+    <div id="scan-results" class="result-list"></div>
+
+    <div id="scan-actions" class="bottom-actions hidden">
+      <button class="btn-secondary" id="btn-copy-all-citations">📋 复制全部脚注</button>
+      <button class="btn-secondary" id="btn-export-report">💾 导出核对表 docx</button>
+    </div>
+  </section>
+
+  <!-- ========== 单句查询 ========== -->
+  <section class="tab-panel" id="tab-lookup">
+    <div class="panel-header">
+      <h2>单句查询</h2>
+    </div>
+    <p class="hint">想确认某一句出自哪里？把它贴进来即可。上下文可选，但能提高准确度。</p>
+
+    <div class="scope-card" id="lookup-scope-card">
+      <span class="scope-label">📂 查找范围：</span>
+      <span class="scope-summary" id="lookup-scope-summary">全部书架</span>
+      <button class="btn-tiny" id="lookup-scope-edit">更改</button>
+    </div>
+
+    <div class="lookup-form">
+      <label>引文 <span class="required">*</span> <span class="dim" style="font-weight:normal;font-size:11px;">（按 Ctrl+Enter 直接查询）</span></label>
+      <div class="input-with-clear">
+        <textarea id="lookup-quote" rows="2" placeholder="例：不便带他去"></textarea>
+        <button class="input-clear-btn" id="btn-clear-quote" title="清空" type="button">✕</button>
+      </div>
+
+      <label>上下文（可选）</label>
+      <div class="input-with-clear">
+        <input id="lookup-ctx" placeholder="例：招待所须自备铺盖" />
+        <button class="input-clear-btn" id="btn-clear-ctx" title="清空" type="button">✕</button>
+      </div>
+
+      <button class="btn-primary" id="btn-lookup">🔍 查询</button>
+    </div>
+
+    <div id="lookup-results" class="result-list"></div>
+  </section>
+</main>
+
+<footer id="status-bar" class="status-bar">
+  <span id="status-text">就绪</span>
+  <span id="status-progress" class="progress hidden">
+    <span id="progress-fill"></span>
+  </span>
+</footer>
+
+<!-- 解析进度模态：批量解析时弹出，强制等待，可取消 -->
+<div id="parse-modal-overlay" class="modal-overlay hidden">
+  <div class="modal parse-modal">
+    <div class="modal-header"><span id="parse-modal-title">正在解析书籍</span></div>
+    <div class="modal-body">
+      <div id="parse-summary" class="parse-summary">准备中…</div>
+      <div id="parse-list" class="parse-list"></div>
+    </div>
+    <div class="modal-footer">
+      <button class="btn-secondary" id="btn-cancel-parse">取消解析</button>
+      <button class="btn-primary hidden" id="btn-parse-done">完成</button>
+    </div>
+  </div>
+</div>
+
+<!-- 通用模态框 -->
+<div id="modal-overlay" class="modal-overlay hidden">
+  <div class="modal">
+    <div class="modal-header"><span id="modal-title">提示</span></div>
+    <div class="modal-body" id="modal-body"></div>
+    <div class="modal-footer" id="modal-footer">
+      <button class="btn-secondary" id="modal-cancel">取消</button>
+      <button class="btn-primary" id="modal-ok">确定</button>
+    </div>
+  </div>
+</div>
+
+<script src="app.js"></script>
+</body>
+</html>

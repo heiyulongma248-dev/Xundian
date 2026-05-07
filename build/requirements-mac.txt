@@ -1,0 +1,16 @@
+# 寻典 Mac 构建依赖清单
+# 在 Mac 上跑：pip install -r build/requirements-mac.txt
+
+# —— 应用运行时依赖 ——
+pywebview>=5.0          # 桌面窗口（Mac 用 Cocoa/WebKit 后端）
+python-docx>=0.8.11     # 读 docx + 写核对表
+pypdf>=4.0              # PDF 文本抽取
+opencc-python-reimplemented>=0.1.7   # 简繁转换
+
+# —— Mac 专属：pywebview 的 Cocoa 后端 ——
+pyobjc-core>=10.0
+pyobjc-framework-Cocoa>=10.0
+pyobjc-framework-WebKit>=10.0
+
+# —— 打包工具 ——
+pyinstaller>=6.0

@@ -2101,17 +2101,26 @@ async function _handleGlobalDrop(dataTransfer) {
   let otherSkipped = 0;
   let anyTruncated = false;
 
-  // 注意：drop 之后必须立刻把 items 转成 handle，items 在异步之间会失效
-  // 所以先把 items 同步收集到数组里再 await
-  const items = Array.from(dataTransfer.items || []);
-  for (const item of items) {
+  // 关键修复：dataTransfer.items 在第一次 await 之后会被浏览器作废（Chromium
+  // 规范行为，是已知陷阱）。所以必须**在 await 之前**先把所有 item.getAsFileSystemHandle()
+  // 的 Promise 同步抓出来，最后再 Promise.all。
+  // 之前的写法在循环里逐个 await，导致第二本之后的 item 全部失效，
+  // 表现为"明明拖了 N 本只识别出 1 本"。
+  const handlePromises = [];
+  for (const item of (dataTransfer.items || [])) {
     if (item.kind !== 'file') continue;
-    let handle;
     try {
-      handle = await item.getAsFileSystemHandle();
-    } catch (_) { handle = null; }
-    if (!handle) continue;
+      handlePromises.push(
+        Promise.resolve(item.getAsFileSystemHandle()).catch(() => null)
+      );
+    } catch (_) {
+      handlePromises.push(Promise.resolve(null));
+    }
+  }
+  const handles = await Promise.all(handlePromises);
 
+  for (const handle of handles) {
+    if (!handle) continue;
     if (handle.kind === 'file') {
       const n = handle.name.toLowerCase();
       if (n.endsWith('.pdf')) pdfs.push(handle);

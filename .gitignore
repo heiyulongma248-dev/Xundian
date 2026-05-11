@@ -45,6 +45,8 @@ Books/
 引文app测试*/
 引文app测试*.zip
 *.zip
+# 但 web/lib/ 下 vendor 的 Python 标准库 zip 必须入库
+!web/lib/**/*.zip
 
 # —— 运行时缓存（PDF 文字层缓存，每个用户机器自己生成）——
 cache/

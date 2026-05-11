@@ -107,22 +107,59 @@ function handleName(handle) {
   return handle && handle.name ? handle.name : '';
 }
 
-// —— PDF 跳页：直接把 bytes 做成 blob URL 新 tab 打开 ——
-// 浏览器内置 PDF viewer 支持 #page=N（Edge / Chrome 都支持）
+// —— PDF 跳页：用 HTML 包装页 + <embed> 显示，避开 Mac Chrome "始终下载 PDF" 设置 ——
+// 不直接 window.open(blob:application/pdf) —— Mac Chrome 上如果用户启用了
+// 「始终下载 PDF」（不少 Mac 用户为了用 Preview 看 PDF 会开），顶层导航到 PDF
+// 一定会触发下载。改成开一个 HTML 包装页，里面用 <embed> 嵌入 PDF：
+// 嵌入元素必须内联渲染，不受用户的下载设置影响。
 async function openPdfAtPage(handle, pageNum) {
   const bytes = await readHandleBytes(handle);
   if (!bytes) throw new Error('无法读取 PDF。');
-  const blob = new Blob([bytes], { type: 'application/pdf' });
-  const url = URL.createObjectURL(blob);
-  // #page=N 必须紧跟 URL 才被浏览器内置 PDF viewer 识别
-  const fullUrl = `${url}#page=${pageNum}`;
-  const w = window.open(fullUrl, '_blank');
-  // 给浏览器一会儿拉起来 viewer 再回收 URL，太早 revoke 会打不开
-  setTimeout(() => URL.revokeObjectURL(url), 60_000);
+
+  const pdfBlob = new Blob([bytes], { type: 'application/pdf' });
+  const pdfUrl = URL.createObjectURL(pdfBlob);
+
+  const _escape = (s) => String(s).replace(/[&<>"']/g,
+    (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+  const safeName = _escape(handle.name || 'PDF');
+  const html = `<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<title>${safeName} · 第 ${pageNum} 页</title>
+<style>
+  html, body { margin:0; padding:0; height:100%; background:#525659; font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; color:#fff; }
+  embed { width:100%; height:100%; border:none; display:block; }
+  .fallback { padding:24px; text-align:center; line-height:1.7; }
+  .fallback a { color:#88c0ff; }
+</style>
+</head>
+<body>
+<embed src="${pdfUrl}#page=${pageNum}" type="application/pdf">
+<noembed>
+  <div class="fallback">
+    <p>当前浏览器无法内联显示 PDF。</p>
+    <p><a href="${pdfUrl}" download="${safeName}">点击下载这本 PDF</a> 然后用本地阅读器打开第 ${pageNum} 页。</p>
+  </div>
+</noembed>
+</body>
+</html>`;
+
+  const htmlBlob = new Blob([html], { type: 'text/html' });
+  const htmlUrl = URL.createObjectURL(htmlBlob);
+
+  const w = window.open(htmlUrl, '_blank');
+  // 1 小时后回收 URL（用户大概率早已看完关掉了窗口）。
+  // 不要太早 revoke —— 用户在 PDF viewer 里翻页时浏览器可能重新读 blob。
+  setTimeout(() => {
+    URL.revokeObjectURL(pdfUrl);
+    URL.revokeObjectURL(htmlUrl);
+  }, 3600_000);
+
   if (!w) {
     throw new Error('浏览器拦截了新窗口。请在地址栏右侧允许弹窗后重试。');
   }
-  return { url: fullUrl };
+  return { url: htmlUrl };
 }
 
 // —— 触发"另存为"下载 bytes —— 用于导出核对表 docx ——

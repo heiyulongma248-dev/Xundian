@@ -230,8 +230,23 @@ class Api:
         await asyncio.sleep(0)
 
         _emit("scan_phase", phase="precomputing")
-        precomputed = precompute_books(books_pages)
-        await asyncio.sleep(0)
+        # 自己做预归一化（替代一次性的 precompute_books），按本书让出事件循环，
+        # 避免大书架（10+ 本，每本几百页）一气跑完把 UI 冻 5-6 秒
+        from .matcher import normalize as _normalize
+        precomputed = {}
+        for _fid, _pgs in books_pages.items():
+            _norm_texts = [_normalize(p.text) for p in _pgs]
+            _lens = [len(t) for t in _norm_texts]
+            _offsets = [0]
+            for _ln in _lens:
+                _offsets.append(_offsets[-1] + _ln)
+            precomputed[_fid] = {
+                "book_norm": "".join(_norm_texts),
+                "page_norm_lens": _lens,
+                "page_offsets": _offsets,
+                "page_norm_texts": _norm_texts,
+            }
+            await asyncio.sleep(0)  # 每本书让一次
 
         threshold = float(self.settings["threshold"])
         ctx_weight = float(self.settings["ctx_weight"])
@@ -298,9 +313,9 @@ class Api:
                 miss=miss,
                 result=result_dict,
             )
-            # 每条引文让出一次事件循环 —— 否则长 docx 里 UI 不会逐条出现
-            if idx % 3 == 0:
-                await asyncio.sleep(0)
+            # 每条引文都让出一次事件循环 —— 让 UI 可滚 / 可切 tab；
+            # 单条匹配本身仍是同步的（50-200 ms 卡顿），但不会出现长时间整体冻结
+            await asyncio.sleep(0)
 
         books_summary = []
         for fid, pages in books_pages.items():

@@ -25,8 +25,15 @@ const PYODIDE_INDEX_URL = 'lib/pyodide/';
 // typing-extensions 是 python-docx 的运行时依赖；它是 Pyodide 内置但需显式加载，
 // PyPI 元数据里没有把它列成硬依赖，所以 micropip 不会自动拉。先 loadPackage 进来。
 const BUNDLED_PACKAGES = ['lxml', 'micropip', 'typing-extensions'];
-const PYPI_PACKAGES = ['python-docx', 'pypdf'];
-const OPTIONAL_PYPI_PACKAGES = ['opencc-python-reimplemented'];
+// 所有非内置依赖都 vendor 到 lib/pypi/ 下，让 micropip 从本地 wheel 装，
+// 不走 pypi.org —— 国内访问 PyPI 经常慢/不稳定，全本地化最稳。
+const LOCAL_WHEELS = [
+  'lib/pypi/python_docx-1.2.0-py3-none-any.whl',
+  'lib/pypi/pypdf-6.11.0-py3-none-any.whl',
+];
+const OPTIONAL_LOCAL_WHEELS = [
+  'lib/pypi/opencc_python_reimplemented-0.1.7-py2.py3-none-any.whl',
+];
 
 // 跟 pysrc/ 下文件名一一对应；加载顺序无所谓，import 时按需触发
 const PY_FILES = [
@@ -77,15 +84,17 @@ class PyBridge {
     this._phase('install_packages', `加载基础包（${BUNDLED_PACKAGES.join(', ')}）…`);
     await this.pyodide.loadPackage(BUNDLED_PACKAGES);
 
-    // 3b. 用 micropip 从 PyPI 装纯 Python 包
+    // 3b. 用 micropip 从本地 wheel 安装（不走 PyPI）
     const micropip = this.pyodide.pyimport('micropip');
-    this._phase('install_packages', `从 PyPI 安装：${PYPI_PACKAGES.join(', ')}…`);
-    await micropip.install(this.pyodide.toPy(PYPI_PACKAGES));
+    this._phase('install_packages', '安装依赖（python-docx, pypdf）…');
+    await micropip.install(this.pyodide.toPy(LOCAL_WHEELS));
 
-    // 装完后立刻验证各个包能 import —— 提前暴露问题，
-    // 比解析时才发现 ModuleNotFoundError 强得多
-    for (const pkg of PYPI_PACKAGES) {
-      const importName = (pkg === 'python-docx') ? 'docx' : pkg.replace(/-/g, '_');
+    // 装完后立刻验证 import —— 提前暴露问题
+    const importChecks = [
+      ['python-docx', 'docx'],
+      ['pypdf', 'pypdf'],
+    ];
+    for (const [pkg, importName] of importChecks) {
       try {
         await this.pyodide.runPythonAsync(`import ${importName}`);
       } catch (e) {
@@ -94,16 +103,15 @@ class PyBridge {
       }
     }
 
-    // 4. 尝试装可选包（opencc）；装不上就走 matcher.py 的内置 fallback
-    for (const pkg of OPTIONAL_PYPI_PACKAGES) {
+    // 4. 尝试装可选 wheel（opencc 重实现）；装不上就走 matcher.py 的内置 fallback
+    for (const wheel of OPTIONAL_LOCAL_WHEELS) {
       try {
-        this._phase('install_optional', `尝试安装 ${pkg}（可选）…`);
-        await micropip.install(this.pyodide.toPy([pkg]));
-        this._optionalLoaded[pkg] = true;
+        this._phase('install_optional', `尝试加载可选包（opencc）…`);
+        await micropip.install(this.pyodide.toPy([wheel]));
+        this._optionalLoaded[wheel] = true;
       } catch (e) {
-        this._optionalLoaded[pkg] = false;
-        // 控制台留个痕迹，不打扰用户
-        console.warn(`[py-bridge] 可选包 ${pkg} 没装上，将使用内置简繁映射表。`, e);
+        this._optionalLoaded[wheel] = false;
+        console.warn(`[py-bridge] 可选 wheel ${wheel} 没装上，将使用内置简繁映射表。`, e);
       }
     }
 

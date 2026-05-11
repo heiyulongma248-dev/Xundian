@@ -38,6 +38,9 @@ const SELF_ASSETS = [
   'lib/pyodide/packaging-24.2-py3-none-any.whl',
   'lib/pyodide/lxml-5.2.1-cp312-cp312-pyodide_2024_0_wasm32.whl',
   'lib/pyodide/typing_extensions-4.11.0-py3-none-any.whl',
+  'lib/pypi/python_docx-1.2.0-py3-none-any.whl',
+  'lib/pypi/pypdf-6.11.0-py3-none-any.whl',
+  'lib/pypi/opencc_python_reimplemented-0.1.7-py2.py3-none-any.whl',
 ];
 
 self.addEventListener('install', (event) => {

@@ -13,9 +13,8 @@
 (function setupPdfJsWorker() {
   // pdfjsLib 由 index.html 里的 <script> 加载到 window
   if (typeof window === 'undefined' || !window.pdfjsLib) return;
-  // 跟 index.html 里的 script src 版本保持一致
-  window.pdfjsLib.GlobalWorkerOptions.workerSrc =
-    'https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.worker.min.js';
+  // 同源加载 worker，避免依赖 CDN
+  window.pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdfjs/pdf.worker.min.js';
 })();
 
 /**

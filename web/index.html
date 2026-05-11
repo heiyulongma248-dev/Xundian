@@ -216,8 +216,9 @@
   </div>
 </div>
 
-<!-- pdf.js：抽 PDF 文字层（在原生 V8 里跑，比 Pyodide pypdf 快 10-100 倍） -->
-<script src="https://cdn.jsdelivr.net/npm/pdfjs-dist@3.11.174/build/pdf.min.js"></script>
+<!-- pdf.js：抽 PDF 文字层（在原生 V8 里跑，比 Pyodide pypdf 快 10-100 倍）
+     —— 同源加载，不依赖 CDN（国内访问更稳定 + 支持完全离线） -->
+<script src="lib/pdfjs/pdf.min.js"></script>
 <script src="pdf-extract.js"></script>
 
 <script src="db.js"></script>

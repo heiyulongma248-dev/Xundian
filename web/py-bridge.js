@@ -8,7 +8,11 @@
 'use strict';
 
 const PYODIDE_VERSION = '0.27.7';
-const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+// 同源加载（web/lib/pyodide/），避免依赖 cdn.jsdelivr.net —— 国内访问更稳定，
+// 也支持完全离线（Service Worker 缓存后）。
+// 如果你要换回 CDN，把下面这行改成：
+//   const PYODIDE_INDEX_URL = `https://cdn.jsdelivr.net/pyodide/v${PYODIDE_VERSION}/full/`;
+const PYODIDE_INDEX_URL = 'lib/pyodide/';
 
 // 拆成两组：
 // - BUNDLED：Pyodide 内置仓库里有，走 pyodide.loadPackage()（快）

@@ -7,7 +7,7 @@
 
 'use strict';
 
-const CACHE_NAME = 'xundian-v1';
+const CACHE_NAME = 'xundian-v2';
 const SELF_ASSETS = [
   './',
   'index.html',
@@ -26,6 +26,17 @@ const SELF_ASSETS = [
   'pysrc/citation.py',
   'pysrc/render_report.py',
   'pysrc/web_api.py',
+  // 本地 vendor 的 CDN 依赖
+  'lib/pdfjs/pdf.min.js',
+  'lib/pdfjs/pdf.worker.min.js',
+  'lib/pyodide/pyodide.js',
+  'lib/pyodide/pyodide.asm.js',
+  'lib/pyodide/pyodide.asm.wasm',
+  'lib/pyodide/pyodide-lock.json',
+  'lib/pyodide/python_stdlib.zip',
+  'lib/pyodide/micropip-0.9.0-py3-none-any.whl',
+  'lib/pyodide/packaging-24.2-py3-none-any.whl',
+  'lib/pyodide/lxml-5.2.1-cp312-cp312-pyodide_2024_0_wasm32.whl',
 ];
 
 self.addEventListener('install', (event) => {
@@ -49,26 +60,7 @@ self.addEventListener('fetch', (event) => {
   if (req.method !== 'GET') return;
   const url = new URL(req.url);
 
-  // Pyodide & pdf.js CDN：cache-first（一旦缓存就不再回源，除非清缓存）
-  if (url.hostname === 'cdn.jsdelivr.net' &&
-      (url.pathname.includes('/pyodide/') || url.pathname.includes('pdfjs-dist'))) {
-    event.respondWith(
-      caches.open(CACHE_NAME).then(async (cache) => {
-        const cached = await cache.match(req);
-        if (cached) return cached;
-        try {
-          const res = await fetch(req);
-          if (res && res.ok) cache.put(req, res.clone());
-          return res;
-        } catch (e) {
-          return cached || Response.error();
-        }
-      })
-    );
-    return;
-  }
-
-  // 自家资源：stale-while-revalidate
+  // 所有依赖现在都是同源（CDN 依赖已经 vendor 到 lib/）—— 走 stale-while-revalidate
   if (url.origin === self.location.origin) {
     event.respondWith(
       caches.open(CACHE_NAME).then(async (cache) => {

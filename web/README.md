@@ -56,6 +56,9 @@ web/
 ├── fs-bridge.js            File System Access API 包装
 ├── pdf-extract.js          pdf.js 包装（抽 PDF 文字层，跑在 V8 里）
 ├── db.js                   IndexedDB 包装
+├── lib/                    Vendor 的 CDN 依赖（同源加载，国内访问稳定+支持离线）
+│   ├── pyodide/            Pyodide v0.27.7 核心 + lxml/micropip/packaging 三个包（约 15 MB）
+│   └── pdfjs/              pdf.js v3.11.174 主体 + worker（约 1.4 MB）
 ├── manifest.json           PWA 元数据
 ├── service-worker.js       PWA 离线缓存（默认未启用，见下文）
 └── pysrc/
@@ -93,6 +96,29 @@ if ('serviceWorker' in navigator) {
 - [ ] 命中条目「📖 在 PDF 中查看」新 tab 跳到对应页
 - [ ] 导出核对表 docx，下载后字体一致（中文宋体、英文 Times New Roman）
 - [ ] 桌面版基准测试结果一致（详见指南 §7）
+
+## 部署到公网（Cloudflare Pages）
+
+寻典网页版是纯静态站，把 `web/` 目录交给任何静态托管服务即可。推荐 Cloudflare Pages
+（国内访问比 Vercel / GitHub Pages 稳定一点）。流程：
+
+1. **推到 GitHub**（如果还没推）
+   ```powershell
+   # 在项目根目录
+   git remote add origin https://github.com/<你的用户名>/CitationLookup-web.git
+   git push -u origin main
+   ```
+2. **连 Cloudflare Pages**
+   - 注册 / 登录 https://dash.cloudflare.com
+   - 左侧菜单 → **Workers and Pages** → **Create application** → **Pages** → **Connect to Git**
+   - 选刚才推上去的仓库
+3. **构建设置**（关键 — 寻典是纯静态，不用 build）
+   - **Framework preset**: None
+   - **Build command**: 留空
+   - **Build output directory**: `web`
+   - 点 **Save and Deploy**
+4. 等 1-2 分钟，拿到一个 `xxx.pages.dev` 地址。打开看，跟本地 `localhost:8000/web/` 一致。
+5. 之后改了代码 → `git push` → Cloudflare 自动重新部署。
 
 ## 已知限制
 

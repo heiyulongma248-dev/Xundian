@@ -587,3 +587,36 @@ body.multiselect-active .book-card .actions { display: none; }
   background: #fef3c7; color: #92400e; padding: 1px 6px;
   border-radius: 3px; font-size: 11px; font-weight: 600;
 }
+
+/* —— 全局 drop overlay：从文件管理器拖 PDF / 文件夹 / docx 进来时显示 —— */
+.drop-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(26, 58, 107, 0.78);
+  z-index: 99999;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  /* 关键：让 drop 事件穿透到 window，不被覆盖层吃掉 */
+  pointer-events: none;
+  /* 平滑出现 */
+  animation: drop-overlay-fade 120ms ease-out;
+}
+.drop-overlay.hidden { display: none; }
+@keyframes drop-overlay-fade {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+.drop-overlay-box {
+  background: #fff;
+  border-radius: 12px;
+  padding: 48px 64px;
+  border: 4px dashed #1a3a6b;
+  box-shadow: 0 12px 40px rgba(0, 0, 0, 0.35);
+  text-align: center;
+  color: #1a3a6b;
+  max-width: 480px;
+}
+.drop-overlay-icon { font-size: 72px; line-height: 1; margin-bottom: 14px; }
+.drop-overlay-title { font-size: 22px; font-weight: 600; margin-bottom: 10px; }
+.drop-overlay-hint { font-size: 13px; color: #666; line-height: 1.7; }

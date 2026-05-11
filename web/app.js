@@ -1056,29 +1056,50 @@ async function editBookMeta(book) {
   }
 }
 
-$('#btn-add-book').addEventListener('click', () => withBusy(async () => {
-  // 网页版必须在 click 上下文里调 showOpenFilePicker
-  const picked = await callApi('pick_pdf_files');
-  const handles = picked.handles || [];
-  const paths = picked.paths || [];
-  if (paths.length === 0) return;
+// 把 FileSystemFileHandle[] 导入书架的完整流程（选文件夹 / 注册 / 批量解析）。
+// 被两处复用：① 「+ 添加书籍」按钮 ② 全局拖拽 drop。
+// 调用方需自己保证已经在 withBusy() 里（除了 ensureLibraryNotEmpty 这种例外）。
+async function importPdfHandles(handles, opts = {}) {
+  const nonPdfSkipped = opts.nonPdfSkipped || 0;
+  const sourceLabel = opts.sourceLabel || '';  // "拖入"/"" — 仅影响起始 status 文案
 
-  // 暂存 path→handle 映射，供 add_book_quick 使用
+  if (!handles || handles.length === 0) {
+    if (nonPdfSkipped > 0) {
+      await showAlert(
+        `没有找到 PDF 文件（已忽略 ${nonPdfSkipped} 个非 PDF 文件）。`,
+        '没有可导入的 PDF',
+      );
+    }
+    return;
+  }
+
+  // 一次性量超大时多问一句
+  if (handles.length > 50) {
+    if (!(await showConfirm(
+      `即将一次性添加 ${handles.length} 本 PDF（每本首次解析需要 10-60 秒）。\n确定继续？`,
+      '大批量导入',
+    ))) return;
+  }
+
+  // 把 handle 暂存到 _pendingHandles，供 add_book_quick 读
+  const paths = handles.map((h) => h.name);
   _pendingHandles.clear();
   for (let i = 0; i < paths.length; i++) {
     _pendingHandles.set(paths[i], handles[i]);
   }
 
-  let targetFolder = null;
+  // 刷一下文件夹下拉
   try {
     const fr = await callApi('list_folders');
     window._lastFolders = (fr.folders || []).map((f) => f.name);
   } catch (_) {}
-  const fileNames = paths;
+
+  // 选目标文件夹
+  const titlePrefix = sourceLabel ? `${sourceLabel}` : '导入';
   const result = await showModal({
-    title: `导入到哪个文件夹？（${paths.length} 本）`,
+    title: `${titlePrefix}到哪个文件夹？（${paths.length} 本${nonPdfSkipped > 0 ? `，已忽略 ${nonPdfSkipped} 个非 PDF` : ''}）`,
     bodyHtml: `
-      <p class="dim" style="font-size:12px;">本次新增书籍：${fileNames.map(escapeHtml).join('、')}</p>
+      <p class="dim" style="font-size:12px;">本次新增书籍：${paths.map(escapeHtml).join('、')}</p>
       <label>放入文件夹</label>${_folderSelectHtml('', 'add')}
       <p class="dim" style="font-size:11px;margin-top:8px;">书的元信息（作者/出版社等）随后可在书架卡片点「编辑」补全。</p>
     `,
@@ -1095,18 +1116,24 @@ $('#btn-add-book').addEventListener('click', () => withBusy(async () => {
     },
   });
   if (result === null || typeof result !== 'object') return;
-  targetFolder = result.folder;
+  const targetFolder = result.folder;
 
-  let added = [];
-  let skipped = [];
+  // 注册
+  const added = [];
+  const skipped = [];
   for (let i = 0; i < paths.length; i++) {
     const p = paths[i];
     setStatus(`登记中 ${i + 1}/${paths.length}：${p}`);
-    const r = await callApi('add_book_quick', p);
-    if (r.skipped) {
-      skipped.push({ filename: p, reason: r.reason });
-    } else if (r.book) {
-      added.push(r.book);
+    try {
+      const r = await callApi('add_book_quick', p);
+      if (r.skipped) {
+        skipped.push({ filename: p, reason: r.reason });
+      } else if (r.book) {
+        added.push(r.book);
+      }
+    } catch (e) {
+      // callApi 已经 showAlert 了，这里再列一行让用户看到
+      skipped.push({ filename: p, reason: String(e.message || e) });
     }
   }
 
@@ -1117,7 +1144,10 @@ $('#btn-add-book').addEventListener('click', () => withBusy(async () => {
 
   if (skipped.length) {
     const lines = skipped.map((s) => `· ${s.filename}（${s.reason}）`).join('\n');
-    await showAlert(`本次添加 ${added.length} 本，跳过 ${skipped.length} 本：\n\n${lines}`, '导入结果');
+    await showAlert(
+      `本次添加 ${added.length} 本，跳过 ${skipped.length} 本：\n\n${lines}`,
+      '导入结果',
+    );
   }
 
   if (added.length > 0) {
@@ -1131,6 +1161,14 @@ $('#btn-add-book').addEventListener('click', () => withBusy(async () => {
     );
   }
   setStatus(`批量导入完成 · 新增 ${added.length} 本，跳过 ${skipped.length} 本`);
+}
+
+$('#btn-add-book').addEventListener('click', () => withBusy(async () => {
+  // 网页版必须在 click 上下文里调 showOpenFilePicker
+  const picked = await callApi('pick_pdf_files');
+  const handles = picked.handles || [];
+  if (handles.length === 0) return;
+  await importPdfHandles(handles);
 }));
 
 // =========================================================
@@ -1295,30 +1333,17 @@ $('#btn-export-report').addEventListener('click', () => withBusy(async () => {
   showAlert('核对表已导出。\n\n（如果浏览器没自动下载，可能被弹窗拦截器拦下了，请检查浏览器右上角。）', '导出成功');
 }));
 
+// scan-dropzone 的悬停高亮（仅 UI 反馈）；真正的 drop 处理已统一到全局 router
 const dz = $('#scan-dropzone');
 ['dragenter', 'dragover'].forEach((ev) => {
-  dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.add('dragover'); });
+  dz.addEventListener(ev, (e) => {
+    if (!_isFileDrag(e)) return;
+    e.preventDefault();
+    dz.classList.add('dragover');
+  });
 });
 ['dragleave', 'drop'].forEach((ev) => {
-  dz.addEventListener(ev, (e) => { e.preventDefault(); dz.classList.remove('dragover'); });
-});
-dz.addEventListener('drop', async (e) => {
-  // 网页版可以支持拖放：尝试从 dataTransfer 拿文件
-  const file = e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files[0];
-  if (!file) {
-    showAlert('请用「📂 选择 docx 文件」按钮选择文件。', '选择文件');
-    return;
-  }
-  if (!file.name.toLowerCase().endsWith('.docx')) {
-    showAlert('只能扫描 .docx 文件。', '文件类型不支持');
-    return;
-  }
-  withBusy(async () => {
-    if (!(await ensureLibraryNotEmpty())) return;
-    const bytes = new Uint8Array(await file.arrayBuffer());
-    _stagedDocx = { name: file.name, bytes };
-    await runScan(file.name);
-  });
+  dz.addEventListener(ev, () => { dz.classList.remove('dragover'); });
 });
 
 // =========================================================
@@ -2024,6 +2049,164 @@ $('#scan-scope-edit').addEventListener('click', async () => {
 $('#lookup-scope-edit').addEventListener('click', async () => {
   const r = await openScopeModal(lookupScope);
   if (r !== undefined) { lookupScope = r; updateScopeSummaries(); }
+});
+
+// =========================================================
+// 全局拖拽 drop 路由
+// =========================================================
+//
+// 用户可以从文件管理器拖任意东西进来，规则：
+//   - 拖 PDF (单个 / 多个 / 整个文件夹递归)  → 加入书架（自动切到 📚 tab）
+//   - 拖 docx                                  → 文档扫描（自动切到 📄 tab）
+//   - 其它文件类型自动忽略，末尾在弹窗里汇总告知
+//
+// 关键技术：用 dataTransferItem.getAsFileSystemHandle()（Chromium 86+）拿到
+// 真正的 FileSystemFileHandle / FileSystemDirectoryHandle，而不是一次性的
+// File 对象。这样 PDF 仍然只是"被记住位置"，不进入 IndexedDB 字节存储。
+
+function _isFileDrag(e) {
+  // 区分"用户拖外部文件进窗口" vs "应用内拖书卡片"（后者只有 'text/plain' 类型）
+  return e.dataTransfer && e.dataTransfer.types &&
+         Array.from(e.dataTransfer.types).indexOf('Files') !== -1;
+}
+
+let _dragDepth = 0;
+
+function _showDropOverlay() { $('#drop-overlay').classList.remove('hidden'); }
+function _hideDropOverlay() { $('#drop-overlay').classList.add('hidden'); _dragDepth = 0; }
+
+// 递归找文件夹里的 PDF（也顺便数掉非 PDF 文件用于"已忽略 N 个"提示）
+async function _collectPdfsFromDirectory(dirHandle, maxFiles = 500) {
+  const pdfs = [];
+  let skipped = 0;
+  async function walk(dir) {
+    if (pdfs.length >= maxFiles) return;
+    for await (const [name, entry] of dir.entries()) {
+      if (pdfs.length >= maxFiles) return;
+      if (entry.kind === 'file') {
+        if (name.toLowerCase().endsWith('.pdf')) pdfs.push(entry);
+        else skipped += 1;
+      } else if (entry.kind === 'directory') {
+        await walk(entry);
+      }
+    }
+  }
+  try { await walk(dirHandle); } catch (_) { /* 权限/读取错误，吞掉 */ }
+  return { pdfs, skipped, truncated: pdfs.length >= maxFiles };
+}
+
+async function _handleGlobalDrop(dataTransfer) {
+  const pdfs = [];
+  const docxs = [];
+  let otherSkipped = 0;
+  let anyTruncated = false;
+
+  // 注意：drop 之后必须立刻把 items 转成 handle，items 在异步之间会失效
+  // 所以先把 items 同步收集到数组里再 await
+  const items = Array.from(dataTransfer.items || []);
+  for (const item of items) {
+    if (item.kind !== 'file') continue;
+    let handle;
+    try {
+      handle = await item.getAsFileSystemHandle();
+    } catch (_) { handle = null; }
+    if (!handle) continue;
+
+    if (handle.kind === 'file') {
+      const n = handle.name.toLowerCase();
+      if (n.endsWith('.pdf')) pdfs.push(handle);
+      else if (n.endsWith('.docx')) docxs.push(handle);
+      else otherSkipped += 1;
+    } else if (handle.kind === 'directory') {
+      const r = await _collectPdfsFromDirectory(handle);
+      pdfs.push(...r.pdfs);
+      otherSkipped += r.skipped;
+      if (r.truncated) anyTruncated = true;
+    }
+  }
+
+  if (anyTruncated) {
+    await showAlert(
+      '拖入的目录里 PDF 数量超过 500，本次只导入前 500 本。\n' +
+      '建议把文件夹分组后分批拖入。',
+      '拖入数量过多',
+    );
+  }
+
+  if (pdfs.length === 0 && docxs.length === 0) {
+    await showAlert(
+      otherSkipped > 0
+        ? `没找到 PDF 或 docx（已忽略 ${otherSkipped} 个其它文件）。`
+        : '没识别到可用文件。寻典支持拖 PDF（加书架）或 docx（用来扫描）。',
+      '没有可用文件',
+    );
+    return;
+  }
+
+  // 优先级：有 PDF / 文件夹 → 走加入书架（docx 一并算"已忽略"统计）
+  if (pdfs.length > 0) {
+    switchTab('library');
+    await withBusy(async () => {
+      await importPdfHandles(pdfs, {
+        nonPdfSkipped: otherSkipped + docxs.length,
+        sourceLabel: '拖入',
+      });
+    });
+    return;
+  }
+
+  // 仅 docx：触发文档扫描
+  if (docxs.length > 0) {
+    if (docxs.length > 1) {
+      await showAlert(
+        `检测到 ${docxs.length} 个 docx，只会扫描第一个：${docxs[0].name}。\n` +
+        `如需扫描其它，请拖完这次后再拖。`,
+        '一次只能扫描一个 docx',
+      );
+    }
+    switchTab('scan');
+    await withBusy(async () => {
+      if (!(await ensureLibraryNotEmpty())) return;
+      let file;
+      try { file = await docxs[0].getFile(); }
+      catch (e) {
+        await showAlert(`无法读取 docx 文件：${e.message || e}`, '读取失败');
+        return;
+      }
+      const bytes = new Uint8Array(await file.arrayBuffer());
+      _stagedDocx = { name: file.name, bytes };
+      await runScan(file.name);
+    });
+  }
+}
+
+// 给 window 注册全局 dragenter/dragover/dragleave/drop
+window.addEventListener('dragenter', (e) => {
+  if (!_isFileDrag(e)) return;
+  e.preventDefault();
+  _dragDepth += 1;
+  _showDropOverlay();
+});
+window.addEventListener('dragover', (e) => {
+  if (!_isFileDrag(e)) return;
+  e.preventDefault();
+  if (e.dataTransfer) e.dataTransfer.dropEffect = 'copy';
+});
+window.addEventListener('dragleave', (e) => {
+  if (!_isFileDrag(e)) return;
+  _dragDepth -= 1;
+  if (_dragDepth <= 0) _hideDropOverlay();
+});
+window.addEventListener('drop', (e) => {
+  if (!_isFileDrag(e)) return;
+  e.preventDefault();
+  const dt = e.dataTransfer;
+  _hideDropOverlay();
+  // 防止重复触发（应用内 drag 的 drop 已经在元素的 handler 里处理过了）
+  _handleGlobalDrop(dt).catch((err) => {
+    console.error('[drop] 处理出错：', err);
+    showAlert(`处理拖入文件出错：${err.message || err}`, '出错');
+  });
 });
 
 // =========================================================

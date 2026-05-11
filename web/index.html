@@ -204,6 +204,19 @@
   </div>
 </div>
 
+<!-- 拖拽 PDF / docx 时的全局覆盖层 -->
+<div id="drop-overlay" class="drop-overlay hidden">
+  <div class="drop-overlay-box">
+    <div class="drop-overlay-icon">📚</div>
+    <div class="drop-overlay-title">松开鼠标即可添加</div>
+    <div class="drop-overlay-hint">
+      支持一次拖多本 PDF，或拖整个文件夹（自动递归找出里面所有 PDF）<br>
+      也支持拖 .docx 进来直接扫描<br>
+      非 PDF / 非 docx 的文件会自动忽略
+    </div>
+  </div>
+</div>
+
 <!-- 通用模态框 -->
 <div id="modal-overlay" class="modal-overlay hidden">
   <div class="modal">

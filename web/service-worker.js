@@ -7,10 +7,11 @@
 
 'use strict';
 
-const CACHE_NAME = 'xundian-v2';
+const CACHE_NAME = 'xundian-v3';
 const SELF_ASSETS = [
   './',
   'index.html',
+  'pdf-viewer.html',
   'app.js',
   'style.css',
   'icon.png',

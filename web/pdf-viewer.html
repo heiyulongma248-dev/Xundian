@@ -1,0 +1,178 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>寻典 · PDF 查看器</title>
+<link rel="icon" type="image/png" href="icon.png">
+<style>
+  html, body { margin:0; padding:0; height:100%; font-family:-apple-system,"Segoe UI","Microsoft YaHei",sans-serif; background:#525659; color:#fff; }
+  body { display:flex; flex-direction:column; overflow:hidden; }
+  .toolbar {
+    flex-shrink:0; background:#323639; padding:8px 14px;
+    display:flex; gap:10px; align-items:center; flex-wrap:wrap;
+    border-bottom:1px solid #1e1e1e; font-size:13px;
+  }
+  .toolbar button {
+    background:#4d5052; border:0; color:#fff; padding:6px 12px;
+    cursor:pointer; border-radius:3px; font-size:13px;
+  }
+  .toolbar button:hover { background:#5a5d60; }
+  .toolbar button:disabled { opacity:0.4; cursor:not-allowed; }
+  .toolbar input[type=number] {
+    width:56px; padding:4px 6px; background:#1e1e1e; color:#fff;
+    border:1px solid #555; border-radius:3px; text-align:center;
+  }
+  .toolbar .title { color:#aaa; max-width:280px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .toolbar .sep { flex:1; }
+  .toolbar .status { color:#88c0ff; min-width:80px; }
+  .canvas-wrap {
+    flex:1; overflow:auto; display:flex; justify-content:center; align-items:flex-start;
+    padding:20px;
+  }
+  canvas { background:#fff; box-shadow:0 0 12px rgba(0,0,0,0.5); display:block; max-width:100%; }
+  .error {
+    margin:40px auto; max-width:520px; padding:20px;
+    background:#5a3232; border-left:4px solid #c0392b; border-radius:4px;
+    line-height:1.7;
+  }
+  .error a { color:#88c0ff; }
+</style>
+</head>
+<body>
+
+<div class="toolbar">
+  <button id="prev" title="上一页 (←)">←</button>
+  <span>
+    第 <input type="number" id="page-input" min="1" value="1" /> / <span id="total">…</span> 页
+  </span>
+  <button id="next" title="下一页 (→)">→</button>
+  <button id="zoom-out" title="缩小 (-)">−</button>
+  <span id="zoom-label">100%</span>
+  <button id="zoom-in" title="放大 (+)">+</button>
+  <span class="sep"></span>
+  <span class="title" id="file-title">…</span>
+  <span class="status" id="status"></span>
+</div>
+
+<div class="canvas-wrap" id="canvas-wrap">
+  <canvas id="canvas"></canvas>
+</div>
+
+<script src="lib/pdfjs/pdf.min.js"></script>
+<script>
+'use strict';
+
+if (typeof pdfjsLib === 'undefined') {
+  document.body.innerHTML = '<div class="error">pdf.js 没加载成功，请回主页面刷新后重试。</div>';
+  throw new Error('pdf.js missing');
+}
+pdfjsLib.GlobalWorkerOptions.workerSrc = 'lib/pdfjs/pdf.worker.min.js';
+
+const params = new URLSearchParams(location.search);
+const fileUrl = params.get('file');
+const initialPage = parseInt(params.get('page'), 10) || 1;
+const fileName = params.get('name') || 'PDF';
+
+document.title = `${fileName} · 第 ${initialPage} 页 · 寻典`;
+document.getElementById('file-title').textContent = fileName;
+document.getElementById('file-title').title = fileName;
+
+const $ = (id) => document.getElementById(id);
+const canvas = $('canvas');
+const ctx = canvas.getContext('2d');
+
+let pdfDoc = null;
+let currentPage = initialPage;
+let zoom = 1.5;        // 1.0 = 100% of "fit width" baseline; 1.5 默认稍大些
+let rendering = false;
+let pendingPage = null;  // 排队：渲染中又来新请求
+
+function setStatus(s) { $('status').textContent = s || ''; }
+function clampPage(n) {
+  if (!pdfDoc) return n;
+  return Math.max(1, Math.min(pdfDoc.numPages, n));
+}
+
+async function renderPage(num) {
+  if (!pdfDoc) return;
+  num = clampPage(num);
+  if (rendering) { pendingPage = num; return; }
+  rendering = true;
+  setStatus('渲染中…');
+  try {
+    const page = await pdfDoc.getPage(num);
+    const viewport = page.getViewport({ scale: zoom });
+    canvas.width = viewport.width;
+    canvas.height = viewport.height;
+    await page.render({ canvasContext: ctx, viewport }).promise;
+    currentPage = num;
+    $('page-input').value = num;
+    document.title = `${fileName} · 第 ${num} 页 · 寻典`;
+    $('prev').disabled = (num <= 1);
+    $('next').disabled = (num >= pdfDoc.numPages);
+    setStatus('');
+  } catch (e) {
+    setStatus('渲染失败');
+    console.error(e);
+  } finally {
+    rendering = false;
+    if (pendingPage !== null) {
+      const next = pendingPage; pendingPage = null;
+      renderPage(next);
+    }
+  }
+}
+
+function updateZoomLabel() {
+  $('zoom-label').textContent = Math.round(zoom / 1.5 * 100) + '%';
+}
+
+async function init() {
+  if (!fileUrl) {
+    document.querySelector('.canvas-wrap').innerHTML =
+      '<div class="error">缺少 PDF 文件参数。请回主页面在引文卡片上点「📖 在 PDF 中查看」。</div>';
+    return;
+  }
+  setStatus('加载 PDF…');
+  try {
+    pdfDoc = await pdfjsLib.getDocument({
+      url: fileUrl,
+      disableFontFace: false,  // viewer 里可以让 pdf.js 加载字体，显示更好
+    }).promise;
+    $('total').textContent = pdfDoc.numPages;
+    $('page-input').max = pdfDoc.numPages;
+    await renderPage(initialPage);
+  } catch (e) {
+    document.querySelector('.canvas-wrap').innerHTML =
+      `<div class="error">无法加载 PDF：${(e && e.message) || e}<br><br>请回主页面，确认这本 PDF 在书架里已成功解析。</div>`;
+    console.error(e);
+  }
+}
+
+// —— 控件 ——
+$('prev').addEventListener('click', () => renderPage(currentPage - 1));
+$('next').addEventListener('click', () => renderPage(currentPage + 1));
+$('page-input').addEventListener('change', (e) => {
+  const n = parseInt(e.target.value, 10);
+  if (!isNaN(n)) renderPage(n);
+});
+$('zoom-in').addEventListener('click', () => { zoom = Math.min(zoom * 1.25, 5); updateZoomLabel(); renderPage(currentPage); });
+$('zoom-out').addEventListener('click', () => { zoom = Math.max(zoom / 1.25, 0.3); updateZoomLabel(); renderPage(currentPage); });
+
+// 键盘快捷键
+document.addEventListener('keydown', (e) => {
+  if (e.target.tagName === 'INPUT') return;  // 不抢输入框
+  if (e.key === 'ArrowLeft' || e.key === 'PageUp') { e.preventDefault(); renderPage(currentPage - 1); }
+  else if (e.key === 'ArrowRight' || e.key === 'PageDown') { e.preventDefault(); renderPage(currentPage + 1); }
+  else if (e.key === 'Home') { e.preventDefault(); renderPage(1); }
+  else if (e.key === 'End') { e.preventDefault(); renderPage(pdfDoc ? pdfDoc.numPages : 1); }
+  else if ((e.ctrlKey || e.metaKey) && (e.key === '=' || e.key === '+')) { e.preventDefault(); $('zoom-in').click(); }
+  else if ((e.ctrlKey || e.metaKey) && e.key === '-') { e.preventDefault(); $('zoom-out').click(); }
+});
+
+updateZoomLabel();
+init();
+</script>
+</body>
+</html>

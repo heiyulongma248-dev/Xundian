@@ -1,0 +1,19 @@
+{
+  "name": "寻典 — 引文定位与脚注助手",
+  "short_name": "寻典",
+  "description": "学术写作时一秒定位引文出处并生成 GB/T 7714—2015 脚注。",
+  "start_url": "./index.html",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#f7f8fa",
+  "theme_color": "#1a3a6b",
+  "lang": "zh-CN",
+  "icons": [
+    {
+      "src": "icon.png",
+      "sizes": "256x256",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ]
+}

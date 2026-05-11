@@ -22,7 +22,9 @@ const PYODIDE_INDEX_URL = 'lib/pyodide/';
 //     所以仍保留 pypdf 作为兜底解析器 —— 慢但兼容性好。
 // opencc 在 PyPI 上有纯 Python 重实现（opencc-python-reimplemented），装不上就走
 // matcher.py 内置简繁映射表。
-const BUNDLED_PACKAGES = ['lxml', 'micropip'];
+// typing-extensions 是 python-docx 的运行时依赖；它是 Pyodide 内置但需显式加载，
+// PyPI 元数据里没有把它列成硬依赖，所以 micropip 不会自动拉。先 loadPackage 进来。
+const BUNDLED_PACKAGES = ['lxml', 'micropip', 'typing-extensions'];
 const PYPI_PACKAGES = ['python-docx', 'pypdf'];
 const OPTIONAL_PYPI_PACKAGES = ['opencc-python-reimplemented'];
 

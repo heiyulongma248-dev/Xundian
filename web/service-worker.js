@@ -37,6 +37,7 @@ const SELF_ASSETS = [
   'lib/pyodide/micropip-0.9.0-py3-none-any.whl',
   'lib/pyodide/packaging-24.2-py3-none-any.whl',
   'lib/pyodide/lxml-5.2.1-cp312-cp312-pyodide_2024_0_wasm32.whl',
+  'lib/pyodide/typing_extensions-4.11.0-py3-none-any.whl',
 ];
 
 self.addEventListener('install', (event) => {

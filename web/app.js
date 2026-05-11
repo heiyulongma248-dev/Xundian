@@ -1018,10 +1018,278 @@ function _folderSelectHtml(currentFolder, idPrefix = 'm') {
   return `<select id="${idPrefix}-folder">${opts.join('')}</select>`;
 }
 
+// =========================================================
+// 智能识别书目信息（编辑模态用）
+// =========================================================
+//
+// 仿电商解析地址的"剥洋葱"策略：
+//   1. 先抓强锚点（年份 / [M] 类型标签 / 出版社后缀）
+//   2. 字典查表（知名出版社→所在城市、常见出版地）
+//   3. 关键字驱动（著/编/译 前面是作者；《》内是书名）
+//   4. GB/T 7714 规整解析（如检测到 [M]：第一段=作者, 末段=书名）
+//   5. 兜底：去掉已识别部分，按"作者在前书名在后"的中文文献惯例分段
+
+// 常见出版地城市表
+const _CITIES = [
+  '北京', '上海', '广州', '深圳', '杭州', '南京', '武汉', '西安', '成都', '重庆',
+  '天津', '沈阳', '大连', '长春', '哈尔滨', '长沙', '济南', '青岛', '郑州', '福州',
+  '厦门', '昆明', '贵阳', '兰州', '太原', '石家庄', '合肥', '南昌', '南宁', '海口',
+  '香港', '澳门', '台北', '北平', '桂林', '苏州', '无锡', '宁波', '温州',
+  '银川', '西宁', '呼和浩特', '拉萨',
+];
+
+// 知名出版社 → 出版地映射（命中即直接给出 place，无需再扫前文）
+const _PUBLISHER_TO_CITY = {
+  '商务印书馆': '北京', '中华书局': '北京', '三联书店': '北京',
+  '生活·读书·新知三联书店': '北京',
+  '人民出版社': '北京', '人民文学出版社': '北京', '人民教育出版社': '北京',
+  '法律出版社': '北京', '高等教育出版社': '北京',
+  '中国社会科学出版社': '北京', '社会科学文献出版社': '北京', '中央编译出版社': '北京',
+  '北京大学出版社': '北京', '清华大学出版社': '北京', '中国人民大学出版社': '北京',
+  '北京师范大学出版社': '北京', '北京出版社': '北京', '文物出版社': '北京',
+  '中国青年出版社': '北京', '中国大百科全书出版社': '北京', '故宫出版社': '北京',
+  '上海人民出版社': '上海', '上海古籍出版社': '上海', '上海译文出版社': '上海',
+  '上海文艺出版社': '上海', '上海辞书出版社': '上海',
+  '复旦大学出版社': '上海', '同济大学出版社': '上海', '华东师范大学出版社': '上海',
+  '上海交通大学出版社': '上海',
+  '江苏人民出版社': '南京', '江苏古籍出版社': '南京', '凤凰出版社': '南京',
+  '南京大学出版社': '南京', '南京师范大学出版社': '南京', '东南大学出版社': '南京',
+  '译林出版社': '南京',
+  '浙江大学出版社': '杭州', '浙江人民出版社': '杭州', '浙江古籍出版社': '杭州',
+  '浙江文艺出版社': '杭州',
+  '安徽教育出版社': '合肥', '安徽人民出版社': '合肥', '安徽文艺出版社': '合肥',
+  '黄山书社': '合肥',
+  '巴蜀书社': '成都', '四川人民出版社': '成都', '四川大学出版社': '成都',
+  '武汉大学出版社': '武汉', '华中科技大学出版社': '武汉', '长江文艺出版社': '武汉',
+  '中山大学出版社': '广州', '广东人民出版社': '广州', '花城出版社': '广州',
+  '广西师范大学出版社': '桂林', '漓江出版社': '桂林',
+  '山东人民出版社': '济南', '齐鲁书社': '济南', '山东大学出版社': '济南',
+  '福建人民出版社': '福州', '厦门大学出版社': '厦门',
+  '湖南人民出版社': '长沙', '岳麓书社': '长沙',
+  '西安交通大学出版社': '西安', '陕西人民出版社': '西安', '陕西师范大学出版社': '西安',
+  '三秦出版社': '西安',
+  '天津人民出版社': '天津', '南开大学出版社': '天津',
+  '河南人民出版社': '郑州', '中州古籍出版社': '郑州',
+  '河北人民出版社': '石家庄', '河北教育出版社': '石家庄',
+  '辽宁人民出版社': '沈阳', '吉林大学出版社': '长春',
+  '黑龙江人民出版社': '哈尔滨', '云南人民出版社': '昆明',
+  '贵州人民出版社': '贵阳', '海南出版社': '海口',
+};
+
+function parseBookMetadata(input) {
+  const out = { title: '', author: '', publisher: '', year: '', place: '', doc_type: '' };
+  if (!input || typeof input !== 'string') return out;
+
+  // 1. 归一化：全角数字字母 → 半角，统一空白
+  let s = input.trim();
+  s = s.replace(/[０-９Ａ-ｚ]/g, (ch) =>
+    String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
+  s = s.replace(/　/g, ' ').replace(/[ \t]+/g, ' ');
+
+  // 工作副本：随识别进度逐步剥离
+  let remaining = s;
+  const strip = (text) => {
+    if (!text) return;
+    const i = remaining.indexOf(text);
+    if (i !== -1) remaining = remaining.slice(0, i) + ' ' + remaining.slice(i + text.length);
+  };
+
+  // 2. 强信号：年份
+  const yearMatch = s.match(/(?:19|20)\d{2}/);
+  if (yearMatch) {
+    out.year = yearMatch[0];
+    const ywu = remaining.match(new RegExp(yearMatch[0] + '\\s*年?'));
+    strip(ywu ? ywu[0] : yearMatch[0]);
+  }
+
+  // 3. 强信号：文献类型 [M]/[J]/[N]/[D]/[P]/[C]/[R]/[S]
+  const typeMatch = s.match(/\[([MJNDPCRS])\]/i);
+  let docTypeTextInS = null;
+  if (typeMatch) {
+    out.doc_type = typeMatch[1].toUpperCase();
+    docTypeTextInS = typeMatch[0];
+    strip(typeMatch[0]);
+  }
+
+  // 4. ISBN 剥噪（不存）
+  const isbnMatch = remaining.match(/ISBN[\s:：-]*[\d\-Xx]+/i);
+  if (isbnMatch) strip(isbnMatch[0]);
+
+  // 5. 强信号：出版社（中文后缀）
+  const pubPattern = /[一-鿿]{2,15}(?:出版社|书局|印书馆|书店|出版集团|出版公司|出版有限公司|出版股份有限公司|大学出版社)/;
+  const pubMatch = s.match(pubPattern);
+  if (pubMatch) {
+    out.publisher = pubMatch[0];
+    strip(pubMatch[0]);
+  } else {
+    // 英文出版商兜底
+    const enPub = s.match(/[A-Z][A-Za-z&\s]+(?:Press|Publishing|Publishers|Books)/);
+    if (enPub) {
+      out.publisher = enPub[0].trim();
+      strip(enPub[0]);
+    }
+  }
+
+  // 6. 出版地：先看知名出版社映射，再从城市表里找（限制在出版社前面那段）
+  if (out.publisher && _PUBLISHER_TO_CITY[out.publisher]) {
+    out.place = _PUBLISHER_TO_CITY[out.publisher];
+  } else {
+    const searchScope = out.publisher
+      ? s.slice(0, s.indexOf(out.publisher))
+      : s;
+    for (const city of _CITIES) {
+      if (searchScope.includes(city)) {
+        out.place = city;
+        strip(city);
+        break;
+      }
+    }
+    // 如果在出版社前面没找到，全文再找一遍
+    if (!out.place && out.publisher) {
+      for (const city of _CITIES) {
+        if (s.includes(city)) {
+          out.place = city;
+          strip(city);
+          break;
+        }
+      }
+    }
+  }
+
+  // 7. 书名：优先 《》/「」/﹝﹞
+  const quotedMatch = s.match(/《([^》]+)》|「([^」]+)」|﹝([^﹞]+)﹞/);
+  if (quotedMatch) {
+    out.title = (quotedMatch[1] || quotedMatch[2] || quotedMatch[3]).trim();
+    strip(quotedMatch[0]);  // 把整个 《...》 剥掉
+  }
+
+  // 8. 作者：找最末一个 著/编/主编/译/撰 等关键字，反向扫到上一段
+  //    多作者（"张三, 李四 主编"）也能保住
+  //    顺序按"长 → 短"避免 "编著" 被截成 "编"
+  const MARKER_RE = /(编著|编译|主编|选编|主译|笔录|执笔|著|编|译|撰)(?![一-鿿])/g;
+  let lastMarker = null;
+  let mm;
+  while ((mm = MARKER_RE.exec(s)) !== null) {
+    lastMarker = mm;
+  }
+  if (lastMarker) {
+    const markerStart = lastMarker.index;
+    const markerEnd = markerStart + lastMarker[0].length;
+    const before = s.slice(0, markerStart);
+    // 找最近的"强分隔符"作为作者起点
+    const strongSepRe = /[.。;；\n]/g;
+    let lastSep = -1;
+    let sm;
+    while ((sm = strongSepRe.exec(before)) !== null) lastSep = sm.index;
+    let candidate = before.slice(lastSep + 1).trim();
+    candidate = candidate.replace(/[,，]\s*$/, '').trim();
+    // 排除作者位置不像人名的（比如出版社、城市残留）
+    if (candidate &&
+        candidate.length >= 2 && candidate.length <= 30 &&
+        !candidate.includes('出版社') &&
+        !candidate.includes('书局') &&
+        !candidate.includes('印书馆') &&
+        !candidate.includes('《') &&  // 是书名不是作者
+        candidate !== out.title) {
+      out.author = candidate;
+      strip(s.slice(lastSep + 1, markerEnd));  // 作者 + 关键字 一起剥
+    }
+  }
+
+  // 9. GB/T 7714 解析：[M] 前面的段，第一段=作者，末段=书名（填空白）
+  if (docTypeTextInS) {
+    const idx = s.indexOf(docTypeTextInS);
+    const before = s.slice(0, idx);
+    const segs = before.split(/[,，.。、；;:：]/).map((x) => x.trim()).filter(Boolean);
+    if (segs.length >= 1 && !out.title) {
+      const titleCand = segs[segs.length - 1];
+      if (titleCand !== out.author) {
+        out.title = titleCand;
+        strip(titleCand);
+      }
+    }
+    if (segs.length >= 2 && !out.author) {
+      let authorCand = segs[0];
+      // 去掉作者后面残留的 著/编 等关键字
+      authorCand = authorCand.replace(/(编著|编译|主编|选编|主译|笔录|执笔|著|编|译|撰)\s*$/, '').trim();
+      if (authorCand.length >= 2 && authorCand.length <= 30 &&
+          authorCand !== out.title &&
+          !authorCand.includes('出版社')) {
+        out.author = authorCand;
+        strip(authorCand);
+      }
+    }
+  }
+
+  // 10. 兜底：标签法（书名:/作者:）
+  if (!out.title) {
+    const lab = s.match(/(?:书名|题名|标题|题目)\s*[:：]\s*([^\s,，.。、；;:：\n\r\[\]【】]{1,80})/);
+    if (lab) {
+      out.title = lab[1].trim();
+      strip(lab[1]);
+    }
+  }
+  if (!out.author) {
+    const lab = s.match(/(?:作者|编者|编著者)\s*[:：]\s*([^\s,，.。、；;:：\n\r]{2,30})/);
+    if (lab) {
+      out.author = lab[1].trim();
+      strip(lab[1]);
+    }
+  }
+
+  // 11. 终极兜底：剩余文本里按"作者在前、书名在后"分段
+  if (!out.title || !out.author) {
+    const segs = remaining
+      .split(/[,，.。、；;:：\[\]【】\/\\\n\r\t]+/)
+      .map((x) => x.trim())
+      .filter((x) => {
+        if (x.length < 2) return false;
+        if (/^\d+$/.test(x)) return false;             // 纯数字
+        if (/^[\d\-\sxX]+$/.test(x)) return false;     // ISBN 残留
+        if (/^(著|编|译|主编|主译|选编|编著|编译|撰|笔录|执笔|等)$/.test(x)) return false;
+        if (!/[一-鿿\w]/.test(x)) return false; // 必须有有效字符
+        return true;
+      });
+    if (!out.title && segs.length >= 1) {
+      // 通常书名在后（GB/T 7714 顺序）；取最后一段
+      out.title = segs[segs.length - 1];
+    }
+    if (!out.author && segs.length >= 2) {
+      // 第一段（如果不是书名）作为作者候选
+      const first = segs[0];
+      if (first !== out.title && first.length <= 30) {
+        out.author = first;
+      }
+    }
+  }
+
+  // 12. 收尾清理：去首尾标点空白
+  for (const k of Object.keys(out)) {
+    if (out[k]) {
+      out[k] = out[k].replace(/^[\s,，.。、；;:：\[\]【】《》「」]+|[\s,，.。、；;:：\[\]【】《》「」]+$/g, '').trim();
+    }
+  }
+
+  return out;
+}
+
 async function editBookMeta(book) {
   const result = await showModal({
     title: '编辑书籍信息',
     bodyHtml: `
+      <div class="smart-parse-block">
+        <div class="smart-parse-title">📝 智能识别（可选 · 自动填充下方各栏）</div>
+        <div class="smart-parse-hint">
+          把书的全部信息一股脑粘贴到这里，按"识别"自动拆出作者、书名、出版社等。
+          <br><span class="dim">示例：<code>胡适. 胡适日记全编[M]. 合肥: 安徽教育出版社, 2001.</code></span>
+        </div>
+        <textarea id="m-smart-input" rows="3" placeholder="把整段书目信息贴进来..."></textarea>
+        <div class="smart-parse-actions">
+          <button class="btn-secondary" id="m-smart-btn" type="button">✨ 识别并填写</button>
+          <span id="m-smart-status" class="smart-parse-status"></span>
+        </div>
+      </div>
+
       <label>作者</label><input id="m-author" value="${escapeHtml(book.author)}" />
       <label>书名</label><input id="m-title" value="${escapeHtml(book.title)}" />
       <label>文献类型（M=专著, J=期刊, N=报纸）</label>
@@ -1466,6 +1734,61 @@ document.addEventListener('input', (e) => {
     $('#set-ctxw-val').textContent = Number(e.target.value).toFixed(2);
   } else if (e.target.id === 'set-topk') {
     $('#set-topk-val').textContent = e.target.value;
+  }
+});
+
+// 编辑书本模态里的「智能识别」按钮（用 event delegation 是因为模态 HTML 动态注入）
+document.addEventListener('click', (e) => {
+  if (!(e.target && e.target.id === 'm-smart-btn')) return;
+  e.preventDefault();
+  const input = $('#m-smart-input');
+  if (!input) return;
+  const text = (input.value || '').trim();
+  if (!text) {
+    showAlert('请先在上面的文本框里贴入书的信息。', '没有可识别内容');
+    return;
+  }
+  const parsed = parseBookMetadata(text);
+
+  // 把识别结果填到对应 input；总是覆盖（用户已确认想用智能识别）
+  const fieldMap = [
+    ['m-author', 'author'],
+    ['m-title', 'title'],
+    ['m-doctype', 'doc_type'],
+    ['m-place', 'place'],
+    ['m-pub', 'publisher'],
+    ['m-year', 'year'],
+  ];
+  let recognizedCount = 0;
+  for (const [domId, key] of fieldMap) {
+    const el = $('#' + domId);
+    if (!el) continue;
+    const val = parsed[key];
+    if (!val) continue;
+    el.value = val;
+    // 黄色短暂高亮告诉用户哪些被改了
+    el.classList.remove('smart-flash');
+    void el.offsetWidth;  // 强制 reflow 触发动画重放
+    el.classList.add('smart-flash');
+    setTimeout(() => el.classList.remove('smart-flash'), 2000);
+    recognizedCount += 1;
+  }
+
+  const statusEl = $('#m-smart-status');
+  if (recognizedCount === 0) {
+    if (statusEl) {
+      statusEl.textContent = '未识别到任何字段';
+      statusEl.style.color = '#c0392b';
+    }
+    showAlert(
+      '未能从输入中识别出任何字段。\n\n请检查输入格式（参考下方示例），或直接手动填写下方各栏。',
+      '识别失败',
+    );
+  } else {
+    if (statusEl) {
+      statusEl.textContent = `已识别 ${recognizedCount}/6 个字段`;
+      statusEl.style.color = '#1e823b';
+    }
   }
 });
 

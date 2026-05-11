@@ -588,6 +588,62 @@ body.multiselect-active .book-card .actions { display: none; }
   border-radius: 3px; font-size: 11px; font-weight: 600;
 }
 
+/* —— 编辑书本：智能识别区域 —— */
+.smart-parse-block {
+  background: #f0f4fa;
+  border: 1px solid #c8d4e8;
+  border-radius: 6px;
+  padding: 12px 14px;
+  margin-bottom: 18px;
+}
+.smart-parse-title {
+  font-weight: 600;
+  color: #1a3a6b;
+  margin-bottom: 6px;
+  font-size: 14px;
+}
+.smart-parse-hint {
+  font-size: 12px;
+  color: #666;
+  line-height: 1.6;
+  margin-bottom: 8px;
+}
+.smart-parse-hint code {
+  background: rgba(0, 0, 0, 0.05);
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11px;
+}
+.smart-parse-block textarea {
+  width: 100%;
+  min-height: 56px;
+  font-size: 13px;
+  padding: 8px 10px;
+  border-radius: 4px;
+  border: 1px solid #c8d4e8;
+  background: #fff;
+  resize: vertical;
+  box-sizing: border-box;
+  font-family: inherit;
+}
+.smart-parse-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 8px;
+}
+.smart-parse-status {
+  font-size: 12px;
+  color: #666;
+}
+
+/* 识别后填入的字段短暂黄色高亮，提示用户哪些被改了 */
+@keyframes smart-flash {
+  0%   { background: #fff4c4; border-color: #f5c842; box-shadow: 0 0 0 3px rgba(245, 200, 66, 0.15); }
+  100% { background: #fff;     border-color: #d0d4d8; box-shadow: none; }
+}
+.smart-flash { animation: smart-flash 2s ease-out; }
+
 /* —— 全局 drop overlay：从文件管理器拖 PDF / 文件夹 / docx 进来时显示 —— */
 .drop-overlay {
   position: fixed;

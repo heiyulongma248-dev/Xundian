@@ -1121,17 +1121,55 @@ function parseBookMetadata(input) {
   }
 
   // 3. 强信号：出版社（中文后缀）— 同时记下结束位置，给年份评分用
+  //    三层试探，从最稳到最贪：
+  //      3a. 锚定正则（前面有分隔符 / 字符串起点）—— 最可靠
+  //      3b. 已知出版社名查表 —— 无空格输入也能切对
+  //      3c. 非锚定正则 —— 兜底，可能 over-match
   let publisherEndIdx = -1;
-  const pubPattern = /[一-鿿]{2,15}(?:出版社|书局|印书馆|书店|出版集团|出版公司|出版有限公司|出版股份有限公司|大学出版社)/;
-  const pubMatch = s.match(pubPattern);
-  if (pubMatch) {
-    out.publisher = pubMatch[0];
-    publisherEndIdx = pubMatch.index + pubMatch[0].length;
-  } else {
-    const enPub = s.match(/[A-Z][A-Za-z&\s]+(?:Press|Publishing|Publishers|Books)/);
-    if (enPub) {
-      out.publisher = enPub[0].trim();
-      publisherEndIdx = enPub.index + enPub[0].length;
+  const pubSuffixGroup =
+    '(?:出版社|书局|书社|印书馆|书店|出版集团|出版公司|出版有限公司|出版股份有限公司|大学出版社)';
+
+  // 3a. 锚定（真分隔符 + 出版社）—— 不允许 ^ 锚定，避免无空格输入把整串吞进
+  //     publisher。string-start 的情形让 3b 已知表负责。
+  {
+    const anchoredRe = new RegExp(
+      `[\\s,，.。、;；:：]([一-鿿]{2,15}${pubSuffixGroup})`
+    );
+    const m = s.match(anchoredRe);
+    if (m) {
+      out.publisher = m[1];
+      publisherEndIdx = m.index + m[0].length;
+    }
+  }
+
+  // 3b. 查已知出版社名表（无锚定也命中）—— 选最长的避免 "中国" 错抓 "中国人民出版社" 之类
+  if (!out.publisher) {
+    let bestKnown = null;
+    for (const knownPub of Object.keys(_PUBLISHER_TO_CITY)) {
+      const idx = s.indexOf(knownPub);
+      if (idx >= 0 && (!bestKnown || knownPub.length > bestKnown.value.length)) {
+        bestKnown = { value: knownPub, idx };
+      }
+    }
+    if (bestKnown) {
+      out.publisher = bestKnown.value;
+      publisherEndIdx = bestKnown.idx + bestKnown.value.length;
+    }
+  }
+
+  // 3c. 非锚定（兜底）
+  if (!out.publisher) {
+    const freeRe = new RegExp(`[一-鿿]{2,15}${pubSuffixGroup}`);
+    const pubMatch = s.match(freeRe);
+    if (pubMatch) {
+      out.publisher = pubMatch[0];
+      publisherEndIdx = pubMatch.index + pubMatch[0].length;
+    } else {
+      const enPub = s.match(/[A-Z][A-Za-z&\s]+(?:Press|Publishing|Publishers|Books)/);
+      if (enPub) {
+        out.publisher = enPub[0].trim();
+        publisherEndIdx = enPub.index + enPub[0].length;
+      }
     }
   }
 
@@ -1180,34 +1218,36 @@ function parseBookMetadata(input) {
     }
   }
 
-  // 5. 出版地：先看知名出版社映射，再从城市/省份表里找
-  //    用分隔符护栏匹配，避免 "安徽出版社" / "江苏教育出版社" 被错抠出
-  //    place="安徽" / "江苏"。
-  if (out.publisher && _PUBLISHER_TO_CITY[out.publisher]) {
-    out.place = _PUBLISHER_TO_CITY[out.publisher];
-  } else {
+  // 5. 出版地：用户在原文里显式写的 city/province 优先；
+  //    出版社映射 (_PUBLISHER_TO_CITY) 只作兜底。
+  //    用分隔符护栏匹配，避免 "安徽出版社" 被抠出 place="安徽"。
+  {
     const _escapeRe = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
     const _hasStandaloneCity = (text, city) =>
       new RegExp(`(^|[\\s,，.。、;；:：])${_escapeRe(city)}(?=[\\s,，.。、;；:：]|$)`).test(text);
 
-    const searchScope = out.publisher
-      ? s.slice(0, s.indexOf(out.publisher))
-      : s;
-    for (const city of _CITIES) {
-      if (_hasStandaloneCity(searchScope, city)) {
-        out.place = city;
-        break;
-      }
-    }
-    if (!out.place && out.publisher) {
-      // 出版社后面再扫一遍（少见但合法：用户把 place 写在 publisher 之后）
-      const afterScope = s.slice(s.indexOf(out.publisher) + out.publisher.length);
+    // 先在原文里找显式 token —— 排除出版社那一段
+    if (out.publisher) {
+      const pubIdx = s.indexOf(out.publisher);
+      const beforeScope = s.slice(0, pubIdx);
+      const afterScope = s.slice(pubIdx + out.publisher.length);
       for (const city of _CITIES) {
-        if (_hasStandaloneCity(afterScope, city)) {
+        if (_hasStandaloneCity(beforeScope, city) || _hasStandaloneCity(afterScope, city)) {
           out.place = city;
           break;
         }
       }
+    } else {
+      for (const city of _CITIES) {
+        if (_hasStandaloneCity(s, city)) {
+          out.place = city;
+          break;
+        }
+      }
+    }
+    // 兜底：知名出版社映射（用户没显式写 place 时才用）
+    if (!out.place && out.publisher && _PUBLISHER_TO_CITY[out.publisher]) {
+      out.place = _PUBLISHER_TO_CITY[out.publisher];
     }
   }
 
@@ -1270,6 +1310,11 @@ function parseBookMetadata(input) {
         }
         if (!out.author && titleSegIdx >= 1) {
           let cand = segs[0].trim();
+          // 剥常见前缀：序号 "[1]"、标签 "参考文献:" / "引用:" 等
+          cand = cand.replace(/^\[\d+\]\s*/, '');
+          cand = cand.replace(
+            /^(参考文献|引文|引用|附录|文献|参考资料|资料来源|出处)\s*[:：]\s*/, ''
+          );
           // 去掉作者末尾残留的主作者标记
           cand = cand.replace(/[\s]*(编著|编译|主编|选编|主译|笔录|执笔|著|编|译|撰)[\s]*$/, '').trim();
           // 验证：长度合理、不含出版机构后缀、不是书名
@@ -1278,6 +1323,25 @@ function parseBookMetadata(input) {
               !cand.includes('《') &&
               cand !== out.title) {
             out.author = cand;
+          }
+        }
+        // 作者和书名挤在同一段（用 , 而非 . 分隔）：拆首个逗号
+        //   例: "胡适, 胡适日记[M]." → segs[0] = "胡适, 胡适日记[M]"
+        //   只在首个逗号前的字段「像作者名」（CJK / Latin / · / [国籍]）才剥
+        if (!out.author && titleSegIdx === 0) {
+          const seg = segs[0];
+          const commaIdx = seg.search(/[,，]/);
+          if (commaIdx > 0) {
+            const candAuthor = seg.slice(0, commaIdx).trim();
+            const candTitle = seg.slice(commaIdx + 1).replace(/\[[MJNDPCRS]\]/gi, '').trim();
+            // candAuthor 必须长得像人名：CJK / Latin / 中点 / 空白 / [国籍] 前缀
+            const looksLikeAuthor =
+              /^(?:\[[^\]]{1,8}\]\s*)?[一-鿿A-Za-z·\s]{2,30}$/.test(candAuthor) &&
+              !/(出版社|书局|印书馆|书店)/.test(candAuthor);
+            if (looksLikeAuthor && candTitle.length >= 1) {
+              out.author = candAuthor;
+              out.title = candTitle;
+            }
           }
         }
       }

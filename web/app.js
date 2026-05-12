@@ -1316,9 +1316,20 @@ function parseBookMetadata(input) {
       return text.replace(re, '$1 ');
     };
 
+    // 年份的剥离需要特殊处理：除了"2003"本身，还要能吞掉常见后缀
+    // （年/年版/年初版/年首版/年出版/年印/月）—— 否则 "2003年出版" 会被当成书名。
+    const stripYear = (text, year) => {
+      if (!year) return text;
+      const re = new RegExp(
+        `(^|[\\s,，.。、;；:：])${escapeRe(year)}\\s*(?:年\\s*(?:出版|初版|首版|新版|再版|版|印|月)?)?(?=[\\s,，.。、;；:：]|$)`,
+        'g'
+      );
+      return text.replace(re, '$1 ');
+    };
+
     let scratch = workingS;
     scratch = stripWord(scratch, out.publisher);
-    scratch = stripWord(scratch, out.year);
+    scratch = stripYear(scratch, out.year);
     scratch = stripWord(scratch, out.place);
     scratch = stripWord(scratch, out.author);
     scratch = stripWord(scratch, out.title);
@@ -1855,14 +1866,19 @@ document.addEventListener('click', (e) => {
     const el = $('#' + domId);
     if (!el) continue;
     const val = parsed[key];
-    if (!val) continue;
-    el.value = val;
-    // 黄色短暂高亮告诉用户哪些被改了
-    el.classList.remove('smart-flash');
-    void el.offsetWidth;  // 强制 reflow 触发动画重放
-    el.classList.add('smart-flash');
-    setTimeout(() => el.classList.remove('smart-flash'), 2000);
-    recognizedCount += 1;
+    if (val) {
+      // 识别到了：填入 + 黄色短暂高亮
+      el.value = val;
+      el.classList.remove('smart-flash');
+      void el.offsetWidth;  // 强制 reflow 触发动画重放
+      el.classList.add('smart-flash');
+      setTimeout(() => el.classList.remove('smart-flash'), 2000);
+      recognizedCount += 1;
+    } else {
+      // 没识别到：清空对应字段，避免之前残留值误导用户（用户要"总是覆盖"）
+      // doc_type 用默认 M（专著），其它都留空让用户决定
+      el.value = (key === 'doc_type') ? 'M' : '';
+    }
   }
 
   const statusEl = $('#m-smart-status');

@@ -1197,18 +1197,32 @@ function parseBookMetadata(input) {
     }
   }
 
-  // 6. 剥离次要贡献者（任意位置，但必须有 "name 逗号 role" 这个特征）
-  //    护栏：① 名字部分 ≤ 50 字符；② 必须有 [,，]；③ role 后必须紧跟分隔符或结尾
-  //    这样像 "整理与归档" 这种书名不会被误剥（缺少 "名字, role" 结构）。
-  //    "编" 用负向预查避免吃掉 "编著/编译/编辑/编校/编选" 这些复合主作者标记。
+  // 6a. 剥离次要贡献者（任意位置）— 形式 ①：name + 逗号 + role
+  //    名字部分可含逗号（让"耿云志，欧阳哲生，整理"整段一起剥）；
+  //    "编" 用负向预查避免吃掉 编著/编译/编辑/编校/编选 这类复合主作者标记。
   const SECONDARY_ROLES = '整理|编辑|编校|校点|校注|注释|校译|审定|审校|标点|点校|选注';
-  const secondaryRe = new RegExp(
+  const secondaryRe1 = new RegExp(
     `([^.。;；\\n\\[\\]【】]{2,50})\\s*[,，]\\s*(${SECONDARY_ROLES}|编(?!著|译|辑|校|选))(?=[\\s.。;；\\n,，、)\\]】]|$)`,
     'g'
   );
-  let workingS = s.replace(secondaryRe, (match, name, role) => {
+  let workingS = s.replace(secondaryRe1, (match, name, role) => {
     out._meta.strippedSecondaries.push({ name: name.trim(), role });
-    return ' ';  // 留个空格防止前后串成一个 token
+    return ' ';
+  });
+
+  // 6b. 剥离次要贡献者 — 形式 ②：name + role（无逗号）
+  //    用于用户偷懒不打标点的稀疏输入，比如 "胡适 请回答1998 曹伯言整理 合肥 ..."
+  //    护栏更严：
+  //    - 名字必须 2-5 字 CJK（典型人名长度）
+  //    - 前面必须有空白/分隔符（不在字符串开头，避免误剥首位作者）
+  //    - 后面必须有空白/分隔符（避免 "胡适整理日记" 这种连贯字符串被误割）
+  const secondaryRe2 = new RegExp(
+    `([\\s,，.。、;；])([一-鿿]{2,5})(${SECONDARY_ROLES})(?=[\\s,，.。、;；)\\]】]|$)`,
+    'g'
+  );
+  workingS = workingS.replace(secondaryRe2, (match, leading, name, role) => {
+    out._meta.strippedSecondaries.push({ name, role });
+    return leading + ' ';
   });
 
   // 7. 剥离版本标记（第N版 / 修订版 / 增订版 / 新版 / 再版 / 影印本 / 影印版）
@@ -1293,30 +1307,47 @@ function parseBookMetadata(input) {
 
   // 12. 终极兜底：剥已识别字段后剩下的最长片段
   if (!out.title || !out.author) {
-    let scratch = workingS;
-    if (out.publisher) scratch = scratch.replace(out.publisher, ' ');
-    if (out.year) scratch = scratch.replace(out.year, ' ');
-    if (out.place) scratch = scratch.replace(out.place, ' ');
-    if (out.doc_type) scratch = scratch.replace(/\[[MJNDPCRS]\]/gi, ' ');
-    if (out.author) scratch = scratch.replace(out.author, ' ');
-    if (out.title) scratch = scratch.replace(out.title, ' ');
+    // 用上下文护栏剥已识别字段，避免书名里恰好含同字（"南京大屠杀史" 里的"南京"）
+    // 被错剥。要求前后是空白/标点/字符串边界。
+    const escapeRe = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const stripWord = (text, word) => {
+      if (!word) return text;
+      const re = new RegExp(`(^|[\\s,，.。、;；:：])${escapeRe(word)}(?=[\\s,，.。、;；:：]|$)`, 'g');
+      return text.replace(re, '$1 ');
+    };
 
-    const segs = scratch
+    let scratch = workingS;
+    scratch = stripWord(scratch, out.publisher);
+    scratch = stripWord(scratch, out.year);
+    scratch = stripWord(scratch, out.place);
+    scratch = stripWord(scratch, out.author);
+    scratch = stripWord(scratch, out.title);
+    if (out.doc_type) scratch = scratch.replace(/\[[MJNDPCRS]\]/gi, ' ');
+
+    // 先按句级分隔符切；如果只切出 1 段且段内有空白，再按空白细分
+    // —— 处理 "胡适 请回答1998 ..." 这种无标点的稀疏输入
+    let segs = scratch
       .split(/[.。;；\n]+/)
       .map((x) => x.trim())
-      .filter((x) => {
-        if (x.length < 2) return false;
-        if (/^\d+$/.test(x)) return false;
-        if (/^[\d\-\sxX]+$/.test(x)) return false;
-        if (/^(著|编|译|主编|主译|选编|编著|编译|撰|笔录|执笔|等)$/.test(x)) return false;
-        if (!/[一-鿿A-Za-z]/.test(x)) return false;
-        return true;
-      });
-    if (!out.title && segs.length >= 1) {
-      out.title = segs[segs.length - 1];
+      .filter(Boolean);
+    if (segs.length === 1 && /\s/.test(segs[0])) {
+      segs = segs[0].split(/\s+/).map((x) => x.trim()).filter(Boolean);
     }
-    if (!out.author && segs.length >= 2) {
-      const first = segs[0];
+
+    const filtered = segs.filter((x) => {
+      if (x.length < 2) return false;
+      if (/^\d+$/.test(x)) return false;
+      if (/^[\d\-\sxX]+$/.test(x)) return false;
+      if (/^(著|编|译|主编|主译|选编|编著|编译|撰|笔录|执笔|等)$/.test(x)) return false;
+      if (!/[一-鿿A-Za-z]/.test(x)) return false;
+      return true;
+    });
+
+    if (!out.title && filtered.length >= 1) {
+      out.title = filtered[filtered.length - 1];
+    }
+    if (!out.author && filtered.length >= 2) {
+      const first = filtered[0];
       if (first !== out.title && first.length <= 50) {
         out.author = first;
       }

@@ -1031,11 +1031,17 @@ function _folderSelectHtml(currentFolder, idPrefix = 'm') {
 
 // 常见出版地城市表
 const _CITIES = [
+  // 直辖市 / 主要城市
   '北京', '上海', '广州', '深圳', '杭州', '南京', '武汉', '西安', '成都', '重庆',
   '天津', '沈阳', '大连', '长春', '哈尔滨', '长沙', '济南', '青岛', '郑州', '福州',
   '厦门', '昆明', '贵阳', '兰州', '太原', '石家庄', '合肥', '南昌', '南宁', '海口',
   '香港', '澳门', '台北', '北平', '桂林', '苏州', '无锡', '宁波', '温州',
   '银川', '西宁', '呼和浩特', '拉萨',
+  // 省名 — 实务中常见用 省 作为 place（尤其老式或简化引用）
+  '安徽', '江苏', '浙江', '山东', '河北', '河南', '湖北', '湖南',
+  '福建', '江西', '广东', '广西', '海南', '四川', '贵州', '云南',
+  '陕西', '甘肃', '青海', '山西', '辽宁', '吉林', '黑龙江', '台湾',
+  '内蒙古', '新疆', '宁夏', '西藏',
 ];
 
 // 知名出版社 → 出版地映射（命中即直接给出 place，无需再扫前文）
@@ -1174,22 +1180,30 @@ function parseBookMetadata(input) {
     }
   }
 
-  // 5. 出版地：先看知名出版社映射，再从城市表里找（限制在出版社前面那段）
+  // 5. 出版地：先看知名出版社映射，再从城市/省份表里找
+  //    用分隔符护栏匹配，避免 "安徽出版社" / "江苏教育出版社" 被错抠出
+  //    place="安徽" / "江苏"。
   if (out.publisher && _PUBLISHER_TO_CITY[out.publisher]) {
     out.place = _PUBLISHER_TO_CITY[out.publisher];
   } else {
+    const _escapeRe = (str) => String(str).replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+    const _hasStandaloneCity = (text, city) =>
+      new RegExp(`(^|[\\s,，.。、;；:：])${_escapeRe(city)}(?=[\\s,，.。、;；:：]|$)`).test(text);
+
     const searchScope = out.publisher
       ? s.slice(0, s.indexOf(out.publisher))
       : s;
     for (const city of _CITIES) {
-      if (searchScope.includes(city)) {
+      if (_hasStandaloneCity(searchScope, city)) {
         out.place = city;
         break;
       }
     }
     if (!out.place && out.publisher) {
+      // 出版社后面再扫一遍（少见但合法：用户把 place 写在 publisher 之后）
+      const afterScope = s.slice(s.indexOf(out.publisher) + out.publisher.length);
       for (const city of _CITIES) {
-        if (s.includes(city)) {
+        if (_hasStandaloneCity(afterScope, city)) {
           out.place = city;
           break;
         }
@@ -1354,8 +1368,19 @@ function parseBookMetadata(input) {
       return true;
     });
 
+    // 取 author/title 的启发：
+    //   - 1 token：当书名
+    //   - 2 token：第一个=作者，第二个=书名
+    //   - 3+ token：第一个=作者；剩下里挑「最长」当书名（书名一般比地名/省名长）
+    //     —— 解决 "胡适 胡适全集 安徽" 这种残留把 "安徽" 当成书名的 bug
     if (!out.title && filtered.length >= 1) {
-      out.title = filtered[filtered.length - 1];
+      if (filtered.length >= 3) {
+        const rest = filtered.slice(1);
+        rest.sort((a, b) => b.length - a.length);
+        out.title = rest[0];
+      } else {
+        out.title = filtered[filtered.length - 1];
+      }
     }
     if (!out.author && filtered.length >= 2) {
       const first = filtered[0];

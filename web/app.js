@@ -1076,8 +1076,28 @@ const _PUBLISHER_TO_CITY = {
   '贵州人民出版社': '贵阳', '海南出版社': '海口',
 };
 
+// 判断 s 中 idx 位置是否在 () / （） 内（向前扫；遇到换行算结束作用域）
+function _inParens(s, idx) {
+  for (let i = idx - 1; i >= 0; i--) {
+    const c = s[i];
+    if (c === '(' || c === '（') return true;
+    if (c === ')' || c === '）') return false;
+    if (c === '\n') return false;
+  }
+  return false;
+}
+
 function parseBookMetadata(input) {
-  const out = { title: '', author: '', publisher: '', year: '', place: '', doc_type: '' };
+  const out = {
+    title: '', author: '', publisher: '', year: '', place: '', doc_type: '',
+    _meta: {
+      strippedSecondaries: [],  // [{name, role}]
+      strippedEditions: [],     // ["第2版", ...]
+      yearCandidates: [],       // [{value, idx, score}]
+      yearChosen: null,         // {value, idx, score} or null
+      yearLowConfidence: false,
+    },
+  };
   if (!input || typeof input !== 'string') return out;
 
   // 1. 归一化：全角数字字母 → 半角，统一空白
@@ -1086,51 +1106,75 @@ function parseBookMetadata(input) {
     String.fromCharCode(ch.charCodeAt(0) - 0xFEE0));
   s = s.replace(/　/g, ' ').replace(/[ \t]+/g, ' ');
 
-  // 工作副本：随识别进度逐步剥离
-  let remaining = s;
-  const strip = (text) => {
-    if (!text) return;
-    const i = remaining.indexOf(text);
-    if (i !== -1) remaining = remaining.slice(0, i) + ' ' + remaining.slice(i + text.length);
-  };
-
-  // 2. 强信号：年份
-  const yearMatch = s.match(/(?:19|20)\d{2}/);
-  if (yearMatch) {
-    out.year = yearMatch[0];
-    const ywu = remaining.match(new RegExp(yearMatch[0] + '\\s*年?'));
-    strip(ywu ? ywu[0] : yearMatch[0]);
-  }
-
-  // 3. 强信号：文献类型 [M]/[J]/[N]/[D]/[P]/[C]/[R]/[S]
+  // 2. 强信号：文献类型 [M]/[J]/[N]/[D]/[P]/[C]/[R]/[S]
   const typeMatch = s.match(/\[([MJNDPCRS])\]/i);
   let docTypeTextInS = null;
   if (typeMatch) {
     out.doc_type = typeMatch[1].toUpperCase();
     docTypeTextInS = typeMatch[0];
-    strip(typeMatch[0]);
   }
 
-  // 4. ISBN 剥噪（不存）
-  const isbnMatch = remaining.match(/ISBN[\s:：-]*[\d\-Xx]+/i);
-  if (isbnMatch) strip(isbnMatch[0]);
-
-  // 5. 强信号：出版社（中文后缀）
+  // 3. 强信号：出版社（中文后缀）— 同时记下结束位置，给年份评分用
+  let publisherEndIdx = -1;
   const pubPattern = /[一-鿿]{2,15}(?:出版社|书局|印书馆|书店|出版集团|出版公司|出版有限公司|出版股份有限公司|大学出版社)/;
   const pubMatch = s.match(pubPattern);
   if (pubMatch) {
     out.publisher = pubMatch[0];
-    strip(pubMatch[0]);
+    publisherEndIdx = pubMatch.index + pubMatch[0].length;
   } else {
-    // 英文出版商兜底
     const enPub = s.match(/[A-Z][A-Za-z&\s]+(?:Press|Publishing|Publishers|Books)/);
     if (enPub) {
       out.publisher = enPub[0].trim();
-      strip(enPub[0]);
+      publisherEndIdx = enPub.index + enPub[0].length;
     }
   }
 
-  // 6. 出版地：先看知名出版社映射，再从城市表里找（限制在出版社前面那段）
+  // 4. 年份评分：每个候选打分，挑分数最高的（平分则取位置最靠后的）
+  //    - 在 () 或 （） 内：-100（书名里的年份范围）
+  //    - 紧贴中英文字母（且后字不是 "年"）：-50（像是书名的一部分，比如 "请回答1998" / "Friends1994"）
+  //    - 在出版社后 ≤20 字符：+50（典型 GB/T 7714 末尾出版年）
+  //    - 在出版社后 ≤50 字符：+20
+  //    - 在出版社之前：-20
+  {
+    const yearRe = /(?:19|20)\d{2}/g;
+    const candidates = [];
+    let ym;
+    while ((ym = yearRe.exec(s)) !== null) {
+      const idx = ym.index;
+      const val = ym[0];
+      let score = 100;
+
+      if (_inParens(s, idx)) score -= 100;
+
+      const beforeCh = s[idx - 1];
+      const afterCh = s[idx + val.length];
+      // 包含中文 (一-鿿) 与英文字母 (A-Za-z)；后字若为"年"则不算紧贴
+      if (beforeCh && /[一-鿿A-Za-z]/.test(beforeCh)) score -= 50;
+      if (afterCh && /[一-鿿A-Za-z]/.test(afterCh) && afterCh !== '年') score -= 50;
+
+      if (publisherEndIdx >= 0) {
+        if (idx > publisherEndIdx) {
+          const dist = idx - publisherEndIdx;
+          if (dist <= 20) score += 50;
+          else if (dist <= 50) score += 20;
+        } else {
+          score -= 20;
+        }
+      }
+
+      candidates.push({ value: val, idx, score });
+    }
+    out._meta.yearCandidates = candidates.slice();
+    if (candidates.length > 0) {
+      candidates.sort((a, b) => b.score - a.score || b.idx - a.idx);
+      const chosen = candidates[0];
+      out._meta.yearChosen = chosen;
+      out.year = chosen.value;
+      if (chosen.score < 50) out._meta.yearLowConfidence = true;
+    }
+  }
+
+  // 5. 出版地：先看知名出版社映射，再从城市表里找（限制在出版社前面那段）
   if (out.publisher && _PUBLISHER_TO_CITY[out.publisher]) {
     out.place = _PUBLISHER_TO_CITY[out.publisher];
   } else {
@@ -1140,135 +1184,148 @@ function parseBookMetadata(input) {
     for (const city of _CITIES) {
       if (searchScope.includes(city)) {
         out.place = city;
-        strip(city);
         break;
       }
     }
-    // 如果在出版社前面没找到，全文再找一遍
     if (!out.place && out.publisher) {
       for (const city of _CITIES) {
         if (s.includes(city)) {
           out.place = city;
-          strip(city);
           break;
         }
       }
     }
   }
 
-  // 7. 书名：优先 《》/「」/﹝﹞
+  // 6. 剥离次要贡献者（任意位置，但必须有 "name 逗号 role" 这个特征）
+  //    护栏：① 名字部分 ≤ 50 字符；② 必须有 [,，]；③ role 后必须紧跟分隔符或结尾
+  //    这样像 "整理与归档" 这种书名不会被误剥（缺少 "名字, role" 结构）。
+  //    "编" 用负向预查避免吃掉 "编著/编译/编辑/编校/编选" 这些复合主作者标记。
+  const SECONDARY_ROLES = '整理|编辑|编校|校点|校注|注释|校译|审定|审校|标点|点校|选注';
+  const secondaryRe = new RegExp(
+    `([^.。;；\\n\\[\\]【】]{2,50})\\s*[,，]\\s*(${SECONDARY_ROLES}|编(?!著|译|辑|校|选))(?=[\\s.。;；\\n,，、)\\]】]|$)`,
+    'g'
+  );
+  let workingS = s.replace(secondaryRe, (match, name, role) => {
+    out._meta.strippedSecondaries.push({ name: name.trim(), role });
+    return ' ';  // 留个空格防止前后串成一个 token
+  });
+
+  // 7. 剥离版本标记（第N版 / 修订版 / 增订版 / 新版 / 再版 / 影印本 / 影印版）
+  workingS = workingS.replace(
+    /(第\s*\d+\s*版|修订版|增订版|新版|再版|影印本|影印版)/g,
+    (m) => { out._meta.strippedEditions.push(m); return ' '; }
+  );
+
+  // 8. 书名：优先 《》/「」/﹝﹞
   const quotedMatch = s.match(/《([^》]+)》|「([^」]+)」|﹝([^﹞]+)﹞/);
   if (quotedMatch) {
     out.title = (quotedMatch[1] || quotedMatch[2] || quotedMatch[3]).trim();
-    strip(quotedMatch[0]);  // 把整个 《...》 剥掉
   }
 
-  // 8. 作者：找最末一个 著/编/主编/译/撰 等关键字，反向扫到上一段
-  //    多作者（"张三, 李四 主编"）也能保住
-  //    顺序按"长 → 短"避免 "编著" 被截成 "编"
-  const MARKER_RE = /(编著|编译|主编|选编|主译|笔录|执笔|著|编|译|撰)(?![一-鿿])/g;
-  let lastMarker = null;
-  let mm;
-  while ((mm = MARKER_RE.exec(s)) !== null) {
-    lastMarker = mm;
-  }
-  if (lastMarker) {
-    const markerStart = lastMarker.index;
-    const markerEnd = markerStart + lastMarker[0].length;
-    const before = s.slice(0, markerStart);
-    // 找最近的"强分隔符"作为作者起点
-    const strongSepRe = /[.。;；\n]/g;
-    let lastSep = -1;
-    let sm;
-    while ((sm = strongSepRe.exec(before)) !== null) lastSep = sm.index;
-    let candidate = before.slice(lastSep + 1).trim();
-    candidate = candidate.replace(/[,，]\s*$/, '').trim();
-    // 排除作者位置不像人名的（比如出版社、城市残留）
-    if (candidate &&
-        candidate.length >= 2 && candidate.length <= 30 &&
-        !candidate.includes('出版社') &&
-        !candidate.includes('书局') &&
-        !candidate.includes('印书馆') &&
-        !candidate.includes('《') &&  // 是书名不是作者
-        candidate !== out.title) {
-      out.author = candidate;
-      strip(s.slice(lastSep + 1, markerEnd));  // 作者 + 关键字 一起剥
-    }
-  }
-
-  // 9. GB/T 7714 解析：[M] 前面的段，第一段=作者，末段=书名（填空白）
+  // 9. GB/T 7714 解析：检测到 [M]，按"句级分隔符"切段
+  //    末段（含 [M]）= 书名，第一段 = 作者
+  //    关键改动：分隔符只用 .。;；\n —— 不再用 :,，：、，避免把
+  //    "胡适全集：第23卷" 在 : 处截断丢前半段
   if (docTypeTextInS) {
-    const idx = s.indexOf(docTypeTextInS);
-    const before = s.slice(0, idx);
-    const segs = before.split(/[,，.。、；;:：]/).map((x) => x.trim()).filter(Boolean);
-    if (segs.length >= 1 && !out.title) {
-      const titleCand = segs[segs.length - 1];
-      if (titleCand !== out.author) {
-        out.title = titleCand;
-        strip(titleCand);
-      }
-    }
-    if (segs.length >= 2 && !out.author) {
-      let authorCand = segs[0];
-      // 去掉作者后面残留的 著/编 等关键字
-      authorCand = authorCand.replace(/(编著|编译|主编|选编|主译|笔录|执笔|著|编|译|撰)\s*$/, '').trim();
-      if (authorCand.length >= 2 && authorCand.length <= 30 &&
-          authorCand !== out.title &&
-          !authorCand.includes('出版社')) {
-        out.author = authorCand;
-        strip(authorCand);
+    const dtReInWorking = /\[([MJNDPCRS])\]/i;
+    const dtInWorking = workingS.match(dtReInWorking);
+    if (dtInWorking) {
+      const segs = workingS
+        .split(/[.。;；\n]+/)
+        .map((x) => x.trim())
+        .filter(Boolean);
+      const titleSegIdx = segs.findIndex((x) => dtReInWorking.test(x));
+      if (titleSegIdx >= 0) {
+        if (!out.title) {
+          out.title = segs[titleSegIdx].replace(/\[[MJNDPCRS]\]/gi, '').trim();
+        }
+        if (!out.author && titleSegIdx >= 1) {
+          let cand = segs[0].trim();
+          // 去掉作者末尾残留的主作者标记
+          cand = cand.replace(/[\s]*(编著|编译|主编|选编|主译|笔录|执笔|著|编|译|撰)[\s]*$/, '').trim();
+          // 验证：长度合理、不含出版机构后缀、不是书名
+          if (cand && cand.length >= 2 && cand.length <= 50 &&
+              !/(出版社|书局|印书馆|书店)/.test(cand) &&
+              !cand.includes('《') &&
+              cand !== out.title) {
+            out.author = cand;
+          }
+        }
       }
     }
   }
 
-  // 10. 兜底：标签法（书名:/作者:）
-  if (!out.title) {
-    const lab = s.match(/(?:书名|题名|标题|题目)\s*[:：]\s*([^\s,，.。、；;:：\n\r\[\]【】]{1,80})/);
-    if (lab) {
-      out.title = lab[1].trim();
-      strip(lab[1]);
-    }
-  }
+  // 10. 主作者关键字兜底（只用 PRIMARY 标记，不含 整理/编辑 等次要角色）
+  //     适用于没有 [M] 的输入，比如 "胡适 著. 胡适日记..."
   if (!out.author) {
-    const lab = s.match(/(?:作者|编者|编著者)\s*[:：]\s*([^\s,，.。、；;:：\n\r]{2,30})/);
-    if (lab) {
-      out.author = lab[1].trim();
-      strip(lab[1]);
+    const PRIMARY = /(编著|编译|选编|主译|主编|著|译|撰)(?![一-鿿])/g;
+    let lastMarker = null;
+    let mm;
+    while ((mm = PRIMARY.exec(workingS)) !== null) lastMarker = mm;
+    if (lastMarker) {
+      const markerStart = lastMarker.index;
+      const before = workingS.slice(0, markerStart);
+      const strongSepRe = /[.。;；\n]/g;
+      let lastSep = -1;
+      let sm;
+      while ((sm = strongSepRe.exec(before)) !== null) lastSep = sm.index;
+      let cand = before.slice(lastSep + 1).trim();
+      cand = cand.replace(/[,，]\s*$/, '').trim();
+      if (cand && cand.length >= 2 && cand.length <= 50 &&
+          !/(出版社|书局|印书馆|书店)/.test(cand) &&
+          !cand.includes('《') &&
+          cand !== out.title) {
+        out.author = cand;
+      }
     }
   }
 
-  // 11. 终极兜底：剩余文本里按"作者在前、书名在后"分段
+  // 11. 标签法兜底（"作者:" / "书名:"）
+  if (!out.author) {
+    const lab = workingS.match(/(?:作者|编者|编著者)\s*[:：]\s*([^\s,，.。、；;:：\n\r]{2,50})/);
+    if (lab) out.author = lab[1].trim();
+  }
+  if (!out.title) {
+    const lab = workingS.match(/(?:书名|题名|标题|题目)\s*[:：]\s*([^\n\r\[\]【】]{1,80})/);
+    if (lab) out.title = lab[1].trim();
+  }
+
+  // 12. 终极兜底：剥已识别字段后剩下的最长片段
   if (!out.title || !out.author) {
-    const segs = remaining
-      .split(/[,，.。、；;:：\[\]【】\/\\\n\r\t]+/)
+    let scratch = workingS;
+    if (out.publisher) scratch = scratch.replace(out.publisher, ' ');
+    if (out.year) scratch = scratch.replace(out.year, ' ');
+    if (out.place) scratch = scratch.replace(out.place, ' ');
+    if (out.doc_type) scratch = scratch.replace(/\[[MJNDPCRS]\]/gi, ' ');
+    if (out.author) scratch = scratch.replace(out.author, ' ');
+    if (out.title) scratch = scratch.replace(out.title, ' ');
+
+    const segs = scratch
+      .split(/[.。;；\n]+/)
       .map((x) => x.trim())
       .filter((x) => {
         if (x.length < 2) return false;
-        if (/^\d+$/.test(x)) return false;             // 纯数字
-        if (/^[\d\-\sxX]+$/.test(x)) return false;     // ISBN 残留
+        if (/^\d+$/.test(x)) return false;
+        if (/^[\d\-\sxX]+$/.test(x)) return false;
         if (/^(著|编|译|主编|主译|选编|编著|编译|撰|笔录|执笔|等)$/.test(x)) return false;
-        if (!/[一-鿿\w]/.test(x)) return false; // 必须有有效字符
+        if (!/[一-鿿A-Za-z]/.test(x)) return false;
         return true;
       });
     if (!out.title && segs.length >= 1) {
-      // 通常书名在后（GB/T 7714 顺序）；取最后一段
       out.title = segs[segs.length - 1];
     }
     if (!out.author && segs.length >= 2) {
-      // 第一段（如果不是书名）作为作者候选
       const first = segs[0];
-      if (first !== out.title && first.length <= 30) {
+      if (first !== out.title && first.length <= 50) {
         out.author = first;
       }
     }
   }
 
-  // 12. 收尾清理：只去首尾的空白和小标点
-  // 注意：不能把 [] / 【】 / 《》 / 「」 当作"无意义符号"剥掉 ——
-  // 这类括号要么早在书名 / 类型标签提取时已经剥过，要么是用户内容的一部分
-  // （比如 "[美] 罗伯特·达恩顿" 这种国籍前缀，把 [ 剥了就少一边变残废）
+  // 13. 收尾清理：只去首尾空白和小标点（不动各类括号）
   for (const k of Object.keys(out)) {
-    if (out[k]) {
+    if (typeof out[k] === 'string' && out[k]) {
       out[k] = out[k].replace(/^[\s,，.。、；;:：]+|[\s,，.。、；;:：]+$/g, '').trim();
     }
   }
@@ -1780,18 +1837,47 @@ document.addEventListener('click', (e) => {
   const statusEl = $('#m-smart-status');
   if (recognizedCount === 0) {
     if (statusEl) {
-      statusEl.textContent = '未识别到任何字段';
-      statusEl.style.color = '#c0392b';
+      statusEl.innerHTML = '<div class="smart-parse-status-line err">未识别到任何字段</div>';
     }
     showAlert(
       '未能从输入中识别出任何字段。\n\n请检查输入格式（参考下方示例），或直接手动填写下方各栏。',
       '识别失败',
     );
-  } else {
-    if (statusEl) {
-      statusEl.textContent = `已识别 ${recognizedCount}/6 个字段`;
-      statusEl.style.color = '#1e823b';
+  } else if (statusEl) {
+    const lines = [];
+    lines.push(`<div class="smart-parse-status-line ok">已识别 ${recognizedCount}/6 个字段</div>`);
+
+    // 已忽略的次要贡献者
+    const sec = parsed._meta && parsed._meta.strippedSecondaries || [];
+    if (sec.length > 0) {
+      const desc = sec.map((r) => `${escapeHtml(r.name)}（${escapeHtml(r.role)}）`).join('、');
+      lines.push(`<div class="smart-parse-status-line">已忽略次要贡献者: ${desc}</div>`);
     }
+
+    // 已忽略的版本标记
+    const ed = parsed._meta && parsed._meta.strippedEditions || [];
+    if (ed.length > 0) {
+      lines.push(`<div class="smart-parse-status-line">已忽略版本标记: ${ed.map(escapeHtml).join('、')}</div>`);
+    }
+
+    // 多个年份候选 —— 只在还有"竞争性"候选时显示（被强惩罚的不算）
+    const yc = parsed._meta && parsed._meta.yearCandidates || [];
+    const chosen = parsed._meta && parsed._meta.yearChosen;
+    if (chosen && yc.length > 1) {
+      const others = yc
+        .filter((c) => c.value !== chosen.value && c.score > 30)
+        .map((c) => c.value);
+      if (others.length > 0) {
+        lines.push(`<div class="smart-parse-status-line">出版年 ${escapeHtml(chosen.value)}（另有候选: ${others.map(escapeHtml).join(', ')}）</div>`);
+      }
+    }
+
+    // 低置信度警告
+    if (parsed._meta && parsed._meta.yearLowConfidence) {
+      lines.push(`<div class="smart-parse-status-line warn">⚠ 出版年识别不确定，请核对</div>`);
+    }
+
+    statusEl.innerHTML = lines.join('');
   }
 });
 

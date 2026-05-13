@@ -789,24 +789,21 @@ function renderResultCard(item) {
         ${others.map((c, i) => {
           const bp = c.book_page != null ? `书内 p${c.book_page}${c.is_cross_page ? `–${c.book_page_end}` : ''}` : '书内页码未识别';
           const cross = c.is_cross_page ? '<span class="cross-page-tag">跨页</span> ' : '';
-          const candCitation = c.citation || '';
-          const citationLine = candCitation
-            ? `<div class="citation" style="margin-top:6px;"><b>出处（建议）：</b>${escapeHtml(candCitation)}</div>`
-            : '';
-          const copyBtn = candCitation
-            ? `<button class="btn-tiny" data-act="copy" data-payload="${escapeHtml(candCitation)}">📋 复制脚注</button>`
-            : '';
+          // Python 通常会把候选的 citation 算好附上；如果哪天 Python 没给
+          // （旧版回退或异常），就只显示书名 + 页码作为兜底，避免空白。
+          const candCitation = c.citation
+            || `${(c.book_file || '').replace(/\.pdf$/i, '')}（出版信息待补）: p${c.book_page != null ? c.book_page : c.pdf_page}`;
           return `
             <div class="alt-cand-card">
-              <div><b>候选 ${i + 2}</b></div>
-              ${citationLine}
-              <div class="ctx-label" style="margin-top:6px;"><b>命中位置：</b></div>
+              <div class="alt-cand-header"><b>候选 ${i + 2}</b></div>
+              <div class="citation" style="margin-top:6px;"><b>出处（建议）：</b>${escapeHtml(candCitation)}</div>
+              <div class="ctx-label" style="margin-top:8px;"><b>命中位置：</b></div>
               <div class="ctx-text">${cross}${escapeHtml(c.book_file)} · PDF p${c.pdf_page}${c.is_cross_page ? `–${c.pdf_page_end}` : ''} · ${bp}</div>
               <div class="scores">主分 ${c.score.toFixed(2)} · 语境分 ${c.ctx_score.toFixed(2)} · 综合 ${c.final_score.toFixed(2)}</div>
               <div class="ctx-label"><b>书中片段：</b></div>
               <div class="snippet">……${escapeHtml(c.snippet_before)}<span class="highlight">${escapeHtml(item.text)}</span>${escapeHtml(c.snippet_after)}……</div>
               <div class="actions">
-                ${copyBtn}
+                <button class="btn-tiny" data-act="copy" data-payload="${escapeHtml(candCitation)}">📋 复制脚注</button>
                 <button class="btn-tiny" data-act="open-pdf" data-file="${escapeHtml(c.book_file)}" data-page="${c.pdf_page}">📖 在 PDF 中查看</button>
               </div>
             </div>

@@ -528,6 +528,9 @@ const API_DISPATCH = {
     const fileIds = await _resolveScopeToFileIds(scope);
     const booksData = await window.dbHelpers.getBooksPagesData(fileIds);
     const booksMeta = await window.dbHelpers.getBooksMeta();
+    // 缓存给 renderResultCard 用：当 Python 没返回 candidate.citation（例如 SW
+    // 还在用旧版 pysrc 缓存）时，JS 端能根据 book_file 自己拼一条 fallback。
+    _lastBooksMeta = booksMeta || {};
     const result = await window.py.call(
       'scan_document',
       _stagedDocx.bytes,
@@ -542,6 +545,7 @@ const API_DISPATCH = {
     const fileIds = await _resolveScopeToFileIds(scope);
     const booksData = await window.dbHelpers.getBooksPagesData(fileIds);
     const booksMeta = await window.dbHelpers.getBooksMeta();
+    _lastBooksMeta = booksMeta || {};
     const result = await window.py.call(
       'lookup_quote',
       quote,
@@ -1635,6 +1639,27 @@ $('#btn-add-book').addEventListener('click', () => withBusy(async () => {
 // =========================================================
 let lastScanResults = [];
 
+// 最近一次 scan / lookup 时拿到的 books_meta，给 renderResultCard 当 fallback：
+// 当 Python 端没返回 candidate.citation（例如 service-worker 还在用旧版 pysrc
+// 缓存）时，JS 端能直接按 book_file 拼一条 GB/T 7714 风格的"出处建议"。
+let _lastBooksMeta = {};
+
+// 客户端版的 format_citation —— 必须和 pysrc/citation.py 一致
+function _formatCitationJs(meta, bookFile, bookPage, pdfPage) {
+  const m = meta || {};
+  const author = m.author || 'XX';
+  const title = m.title || (bookFile || '').replace(/\.pdf$/i, '') || 'XX';
+  const doc_type = m.doc_type || 'M';
+  const place = m.place || 'XX';
+  const publisher = m.publisher || 'XX出版社';
+  const year = m.year || '0000';
+  let pagePart;
+  if (bookPage != null) pagePart = String(bookPage);
+  else if (pdfPage != null) pagePart = `PDF第${pdfPage}页（书内页码待标定）`;
+  else pagePart = '页码待补';
+  return `${author}. ${title}[${doc_type}]. ${place}: ${publisher}, ${year}: ${pagePart}.`;
+}
+
 function renderResultCard(item) {
   const statusMap = {
     hit:  { label: '✓ 自动命中',     color: '#1e823b', cls: 'ok' },
@@ -1698,24 +1723,22 @@ function renderResultCard(item) {
         ${others.map((c, i) => {
           const bp = c.book_page != null ? `书内 p${c.book_page}${c.is_cross_page ? `–${c.book_page_end}` : ''}` : '书内页码未识别';
           const cross = c.is_cross_page ? '<span class="cross-page-tag">跨页</span> ' : '';
-          const candCitation = c.citation || '';
-          const citationLine = candCitation
-            ? `<div class="citation" style="margin-top:6px;"><b>出处（建议）：</b>${escapeHtml(candCitation)}</div>`
-            : '';
-          const copyBtn = candCitation
-            ? `<button class="btn-tiny" data-act="copy" data-payload="${escapeHtml(candCitation)}">📋 复制脚注</button>`
-            : '';
+          // Python 端理应给每个候选附带 citation；如果没有（例如 SW 还在用
+          // 旧版 pysrc 缓存），JS 端用 _lastBooksMeta 做客户端 fallback，
+          // 保证候选卡片永远和主命中一样有"出处（建议）"和"复制脚注"。
+          const candCitation = c.citation
+            || _formatCitationJs(_lastBooksMeta[c.book_file], c.book_file, c.book_page, c.pdf_page);
           return `
             <div class="alt-cand-card">
-              <div><b>候选 ${i + 2}</b></div>
-              ${citationLine}
-              <div class="ctx-label" style="margin-top:6px;"><b>命中位置：</b></div>
+              <div class="alt-cand-header"><b>候选 ${i + 2}</b></div>
+              <div class="citation" style="margin-top:6px;"><b>出处（建议）：</b>${escapeHtml(candCitation)}</div>
+              <div class="ctx-label" style="margin-top:8px;"><b>命中位置：</b></div>
               <div class="ctx-text">${cross}${escapeHtml(c.book_file)} · PDF p${c.pdf_page}${c.is_cross_page ? `–${c.pdf_page_end}` : ''} · ${bp}</div>
               <div class="scores">主分 ${c.score.toFixed(2)} · 语境分 ${c.ctx_score.toFixed(2)} · 综合 ${c.final_score.toFixed(2)}</div>
               <div class="ctx-label"><b>书中片段：</b></div>
               <div class="snippet">……${escapeHtml(c.snippet_before)}<span class="highlight">${escapeHtml(item.text)}</span>${escapeHtml(c.snippet_after)}……</div>
               <div class="actions">
-                ${copyBtn}
+                <button class="btn-tiny" data-act="copy" data-payload="${escapeHtml(candCitation)}">📋 复制脚注</button>
                 <button class="btn-tiny" data-act="open-pdf" data-file="${escapeHtml(c.book_file)}" data-page="${c.pdf_page}">📖 在 PDF 中查看</button>
               </div>
             </div>

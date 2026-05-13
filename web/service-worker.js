@@ -7,7 +7,7 @@
 
 'use strict';
 
-const CACHE_NAME = 'xundian-v3';
+const CACHE_NAME = 'xundian-v4';
 const SELF_ASSETS = [
   './',
   'index.html',

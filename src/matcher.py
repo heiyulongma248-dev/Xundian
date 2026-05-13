@@ -223,9 +223,11 @@ def match_quote(
     docx_after: str = "",
     ctx_weight: float = 0.1,
     precomputed: dict | None = None,
+    per_book_cap: int = 1,
 ) -> MatchResult:
     """
-    返回每本书最多一个候选（同书多次出现时取语境分最高的那次），
+    每本书最多取 per_book_cap 条候选（默认 1，仅取最佳；
+    单句查询场景下传更大值以便看到同一本书的多次出现）。
     跨书按 final_score = score + ctx_weight * ctx_score 排序，截 top_k。
 
     precomputed: 可选的预计算缓存（来自 precompute_books），批量扫描时大幅加速。
@@ -305,7 +307,7 @@ def match_quote(
 
             if book_cands:
                 book_cands.sort(key=lambda c: c.final_score, reverse=True)
-                candidates.append(book_cands[0])
+                candidates.extend(book_cands[: max(1, per_book_cap)])
             continue
 
         # ---- 路径 B：逐页滑窗模糊匹配 ----

@@ -61,7 +61,25 @@ def _candidate_to_dict(cand) -> dict:
     }
 
 
-def _quote_result_to_dict(quote, result, citation: str, threshold: float) -> dict:
+def _format_cand_citation(cand, meta_lookup) -> str:
+    """根据候选所在书的 meta 给前端候选卡片拼一条"出处建议"。
+    meta_lookup 是一个 callable: file_id → dict（找不到时返回空 dict）。"""
+    if meta_lookup is None:
+        return ""
+    m = meta_lookup(cand.book_file) or {}
+    return format_citation(
+        author=m.get("author", "XX"),
+        title=m.get("title", cand.book_file),
+        doc_type=m.get("doc_type", "M"),
+        place=m.get("place", "XX"),
+        publisher=m.get("publisher", "XX出版社"),
+        year=m.get("year", "0000"),
+        book_page=cand.book_page,
+        pdf_page=cand.pdf_page,
+    )
+
+
+def _quote_result_to_dict(quote, result, citation: str, threshold: float, meta_lookup=None) -> dict:
     if not result.candidates:
         status = "miss"
     elif result.best.score >= max(threshold, 0.95):
@@ -70,6 +88,11 @@ def _quote_result_to_dict(quote, result, citation: str, threshold: float) -> dic
         status = "low"
     else:
         status = "miss"
+    cand_dicts = []
+    for c in result.candidates:
+        d = _candidate_to_dict(c)
+        d["citation"] = _format_cand_citation(c, meta_lookup)
+        cand_dicts.append(d)
     return {
         "quote_id": quote.quote_id,
         "text": quote.text,
@@ -77,7 +100,7 @@ def _quote_result_to_dict(quote, result, citation: str, threshold: float) -> dic
         "context_after": quote.context_after,
         "status": status,
         "citation": citation,
-        "candidates": [_candidate_to_dict(c) for c in result.candidates],
+        "candidates": cand_dicts,
     }
 
 
@@ -492,7 +515,7 @@ class Api:
                     pdf_page=mr.best.pdf_page,
                 )
             citations_for_export.append(citation)
-            result_dict = _quote_result_to_dict(q, mr, citation, threshold)
+            result_dict = _quote_result_to_dict(q, mr, citation, threshold, meta_dict.get)
             results.append(result_dict)
 
             if result_dict["status"] == "hit":
@@ -552,16 +575,20 @@ class Api:
         books_pages = self._load_books_pages(scope=scope)
         threshold = float(self.settings["threshold"])
         ctx_weight = float(self.settings["ctx_weight"])
-        top_k = int(self.settings["top_k"])
+        # 单句查询场景下，用户希望看到尽量多的候选 —— 绕开扫描用的 top_k 设置，
+        # 固定最多 10 条；并允许同一本书出现多次（搜"你"这种高频字时尤其需要）。
+        LOOKUP_TOP_K = 10
+        LOOKUP_PER_BOOK_CAP = 10
 
         mr = match_quote(
             quote.strip(),
             books_pages,
             threshold=threshold,
-            top_k=top_k,
+            top_k=LOOKUP_TOP_K,
             docx_before=context_before or "",
             docx_after=context_after or "",
             ctx_weight=ctx_weight,
+            per_book_cap=LOOKUP_PER_BOOK_CAP,
         )
 
         meta_dict = self.lib.to_meta_dict()
@@ -587,7 +614,7 @@ class Api:
             context_before = ""
             context_after = ""
         return {
-            "quote": _quote_result_to_dict(_Q(), mr, citation, threshold),
+            "quote": _quote_result_to_dict(_Q(), mr, citation, threshold, meta_dict.get),
         }
 
     # —— PDF 跳转 ——

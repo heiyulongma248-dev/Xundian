@@ -3469,6 +3469,51 @@ async function openTemplateEditor(options) {
     taEl.addEventListener('input', refresh);
     sampleEl.addEventListener('change', refresh);
 
+    // Backspace 兜底：当光标"紧贴 chip 之后"按 Backspace，删整段 chip。
+    //
+    // 为啥要兜底？理论上 contenteditable=false 的元素左侧按 Backspace
+    // 浏览器原生就会整段删（蓝色 chip 就是这么删的）。但绿色 chip 内部
+    // 嵌套了 contenteditable=true 的 .opt-lit，焦点容易"被吸"进去，
+    // 原生路径不稳。
+    //
+    // 守卫：光标如果就在某个 chip 内部（编辑 prefix/suffix），不动 — 让
+    // Backspace 按正常字符删。
+    taEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Backspace') return;
+      const sel = window.getSelection();
+      if (!sel.rangeCount || !sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      const node = range.startContainer;
+      const offset = range.startOffset;
+
+      // 光标在 chip 内部 → 不拦截
+      const startEl = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      if (startEl && startEl.closest && startEl.closest('.tpl-token')) return;
+
+      // 找紧贴在 caret 之前的兄弟节点是不是 chip
+      let prevChip = null;
+      if (node.nodeType === Node.TEXT_NODE && offset === 0) {
+        let p = node.previousSibling;
+        while (p && p.nodeType === Node.TEXT_NODE && p.textContent === '') {
+          p = p.previousSibling;
+        }
+        if (p && p.nodeType === Node.ELEMENT_NODE && p.classList && p.classList.contains('tpl-token')) {
+          prevChip = p;
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE && offset > 0) {
+        const c = node.childNodes[offset - 1];
+        if (c && c.nodeType === Node.ELEMENT_NODE && c.classList && c.classList.contains('tpl-token')) {
+          prevChip = c;
+        }
+      }
+
+      if (prevChip && taEl.contains(prevChip)) {
+        e.preventDefault();
+        prevChip.remove();
+        refresh();
+      }
+    });
+
     // 阻止 contenteditable 默认的富文本粘贴（只保留纯文本）
     taEl.addEventListener('paste', (e) => {
       e.preventDefault();

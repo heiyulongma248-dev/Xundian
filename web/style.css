@@ -925,13 +925,39 @@ body.multiselect-active .book-card .actions { display: none; }
   border: 1px solid #a7f3d0;
   gap: 1px;
 }
+/* prefix / suffix：可点击编辑的内联文字 */
 .tpl-token-opt .opt-lit {
-  color: #6b7280;
+  display: inline-block;
+  min-width: 4px;
+  padding: 0 2px;
+  color: #1f2937;
   font-family: 'Source Han Serif SC', 'Songti SC', serif;
   font-weight: normal;
+  cursor: text;
+  outline: 0;
+  border-radius: 2px;
+}
+.tpl-token-opt .opt-lit:hover {
+  background: rgba(255,255,255,0.5);
+}
+.tpl-token-opt .opt-lit:focus {
+  background: #fff;
+  box-shadow: inset 0 0 0 1px #34d399;
+}
+/* 空 prefix/suffix：显示一个细虚线提示位 */
+.tpl-token-opt .opt-lit:empty::before {
+  content: '+';
+  color: #a7f3d0;
+  font-size: 11px;
+  font-weight: bold;
+  padding: 0 1px;
+}
+.tpl-token-opt .opt-lit:empty:focus::before {
+  content: '';
 }
 .tpl-token-opt .opt-main {
   font-weight: 600;
+  user-select: none;
 }
 
 .tpl-section,

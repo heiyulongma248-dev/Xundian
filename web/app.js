@@ -3277,32 +3277,38 @@ async function openTemplateEditor(options) {
     return span;
   }
 
-  // 造一个"可选段"chip 节点（绿色），visually 显示 prefix + ?标签 + suffix
+  // 造一个"可选段"chip 节点（绿色），visually: [prefix(可编辑)] [?字段 pill] [suffix(可编辑)]
+  // 外层 contenteditable=false → Backspace 删整段；
+  // 内部 .opt-lit 重新 contenteditable=true → 用户可直接修改 prefix/suffix。
   function makeOptChip(field, prefix, suffix) {
     const span = document.createElement('span');
     span.className = 'tpl-token tpl-token-opt';
     span.contentEditable = 'false';
     span.dataset.kind = 'opt';
     span.dataset.field = field;
-    span.dataset.prefix = prefix || '';
-    span.dataset.suffix = suffix || '';
-    span.title = `{?${field} ${prefix}{}${suffix}} — 空则整段消失`;
-    if (prefix) {
-      const pre = document.createElement('span');
-      pre.className = 'opt-lit';
-      pre.textContent = prefix;
-      span.appendChild(pre);
-    }
+    span.title = `可选段 — 这本书该字段空时整段消失（含两侧文字）`;
+    // prefix（可编辑），始终渲染（哪怕空）
+    const pre = document.createElement('span');
+    pre.className = 'opt-lit';
+    pre.dataset.role = 'prefix';
+    pre.contentEditable = 'true';
+    pre.spellcheck = false;
+    pre.textContent = prefix || '';
+    span.appendChild(pre);
+    // ?字段 主体（不可编辑）
     const main = document.createElement('span');
     main.className = 'opt-main';
+    main.contentEditable = 'false';
     main.textContent = '?' + fieldLabel(field);
     span.appendChild(main);
-    if (suffix) {
-      const suf = document.createElement('span');
-      suf.className = 'opt-lit';
-      suf.textContent = suffix;
-      span.appendChild(suf);
-    }
+    // suffix（可编辑）
+    const suf = document.createElement('span');
+    suf.className = 'opt-lit';
+    suf.dataset.role = 'suffix';
+    suf.contentEditable = 'true';
+    suf.spellcheck = false;
+    suf.textContent = suffix || '';
+    span.appendChild(suf);
     return span;
   }
 
@@ -3341,7 +3347,12 @@ async function openTemplateEditor(options) {
             if (child.dataset.kind === 'req') {
               parts.push(`{${child.dataset.field}}`);
             } else {
-              parts.push(`{?${child.dataset.field} ${child.dataset.prefix || ''}{}${child.dataset.suffix || ''}}`);
+              // 从可编辑的 .opt-lit[data-role=prefix/suffix] 子节点读最新值
+              const preEl = child.querySelector(':scope > .opt-lit[data-role="prefix"]');
+              const sufEl = child.querySelector(':scope > .opt-lit[data-role="suffix"]');
+              const prefix = preEl ? preEl.textContent : '';
+              const suffix = sufEl ? sufEl.textContent : '';
+              parts.push(`{?${child.dataset.field} ${prefix}{}${suffix}}`);
             }
           } else if (child.tagName === 'BR') {
             parts.push('\n');

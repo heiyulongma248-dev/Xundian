@@ -628,6 +628,28 @@ const CASES = [
     input: '[1] 胡适. 胡适日记全编[M]. 合肥: 安徽教育出版社, 2001: 25-30.',
     expect: { author: '胡适', title: '胡适日记全编', publisher: '安徽教育出版社', place: '合肥', year: '2001' },
   },
+
+  // ========== 新增字段测试 ==========
+  {
+    name: '历史研究体例 — 暴露 role=主编',
+    input: '任继愈主编：《中国哲学发展史（先秦卷）》，北京：人民出版社，1983年，第25页。',
+    expect: { author: '任继愈', role: '主编', title: '中国哲学发展史（先秦卷）', place: '北京', publisher: '人民出版社', year: '1983' },
+  },
+  {
+    name: '历史研究体例 — 著（自动归一化为空）',
+    input: '赵景深著：《文坛忆旧》，上海：北新书局，1948年，第43页。',
+    expect: { author: '赵景深', role: '', title: '文坛忆旧', place: '上海', publisher: '北新书局', year: '1948' },
+  },
+  {
+    name: '法学手册 — edition 数字',
+    input: '黄仁宇：《万历十五年》（第2版），中华书局2007年版，第1页。',
+    expect: { author: '黄仁宇', title: '万历十五年', edition: '2', publisher: '中华书局', year: '2007' },
+  },
+  {
+    name: '修订版 → edition="修订"',
+    input: '黄仁宇. 万历十五年[M]. 修订版. 北京: 中华书局, 2007.',
+    expect: { author: '黄仁宇', title: '万历十五年', edition: '修订', place: '北京', publisher: '中华书局', year: '2007' },
+  },
 ];
 
 // —— 跑测试 ——

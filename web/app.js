@@ -1100,6 +1100,8 @@ function _inParens(s, idx) {
 function parseBookMetadata(input) {
   const out = {
     title: '', author: '', publisher: '', year: '', place: '', doc_type: '',
+    // 新增 4 字段（默认空串）
+    role: '', country: '', translator: '', edition: '',
     _meta: {
       strippedSecondaries: [],  // [{name, role}]
       strippedEditions: [],     // ["第2版", ...]
@@ -1284,9 +1286,21 @@ function parseBookMetadata(input) {
   });
 
   // 7. 剥离版本标记（第N版 / 修订版 / 增订版 / 新版 / 再版 / 影印本 / 影印版）
+  //    暴露第一处给 out.edition：数字版次抽数字（"第2版"→"2"）；其他关键词原样
   workingS = workingS.replace(
-    /(第\s*\d+\s*版|修订版|增订版|新版|再版|影印本|影印版)/g,
-    (m) => { out._meta.strippedEditions.push(m); return ' '; }
+    /(第\s*(\d+)\s*版|修订版|增订版|新版|再版|影印本|影印版)/g,
+    (m, _whole, num) => {
+      out._meta.strippedEditions.push(m);
+      if (!out.edition) {
+        if (num) out.edition = num;
+        else if (/修订/.test(m)) out.edition = '修订';
+        else if (/增订/.test(m)) out.edition = '增订';
+        else if (/新版/.test(m)) out.edition = '新版';
+        else if (/再版/.test(m)) out.edition = '再版';
+        else if (/影印/.test(m)) out.edition = '影印';
+      }
+      return ' ';
+    }
   );
 
   // 8. 书名：优先 《》/「」/﹝﹞
@@ -1354,18 +1368,21 @@ function parseBookMetadata(input) {
 
   // 10. 主作者关键字兜底（只用 PRIMARY 标记，不含 整理/编辑 等次要角色）
   //     适用于没有 [M] 的输入，比如 "胡适 著. 胡适日记..."
+  //     注：cand 保留 marker 末尾（如 "任继愈主编"），由后续 12.5 步骤统一剥离并写入 out.role
   if (!out.author) {
     const PRIMARY = /(编著|编译|选编|主译|主编|著|译|撰)(?![一-鿿])/g;
     let lastMarker = null;
     let mm;
     while ((mm = PRIMARY.exec(workingS)) !== null) lastMarker = mm;
     if (lastMarker) {
-      const markerStart = lastMarker.index;
-      const before = workingS.slice(0, markerStart);
+      const markerEnd = lastMarker.index + lastMarker[0].length;
+      const before = workingS.slice(0, markerEnd);
       const strongSepRe = /[.。;；\n]/g;
       let lastSep = -1;
       let sm;
-      while ((sm = strongSepRe.exec(before)) !== null) lastSep = sm.index;
+      // 只在 marker 之前找分隔符，避免把 marker 本身切掉
+      const beforeMarker = workingS.slice(0, lastMarker.index);
+      while ((sm = strongSepRe.exec(beforeMarker)) !== null) lastSep = sm.index;
       let cand = before.slice(lastSep + 1).trim();
       cand = cand.replace(/[,，]\s*$/, '').trim();
       if (cand && cand.length >= 2 && cand.length <= 50 &&
@@ -1416,6 +1433,11 @@ function parseBookMetadata(input) {
     scratch = stripWord(scratch, out.author);
     scratch = stripWord(scratch, out.title);
     if (out.doc_type) scratch = scratch.replace(/\[[MJNDPCRS]\]/gi, ' ');
+    // 步骤 8 已经从 《》 / 「」/ ﹝﹞ 抽出 title；这里把这些括号连内容一起从 scratch 抠掉，
+    // 否则 "黄仁宇：《万历十五年》（）..." 这种残留会被当 author。
+    scratch = scratch.replace(/《[^》]*》|「[^」]*」|﹝[^﹞]*﹞/g, ' ');
+    // 步骤 7 把 "第N版"/"修订版" 等替成空格，但留下 "（  ）" 这种空壳；清掉
+    scratch = scratch.replace(/（\s*）|\(\s*\)/g, ' ');
 
     // 先按句级分隔符切；如果只切出 1 段且段内有空白，再按空白细分
     // —— 处理 "胡适 请回答1998 ..." 这种无标点的稀疏输入
@@ -1454,6 +1476,25 @@ function parseBookMetadata(input) {
       const first = filtered[0];
       if (first !== out.title && first.length <= 50) {
         out.author = first;
+      }
+    }
+  }
+
+  // 12.5 暴露 role：检测 author 末尾的责任方式 marker，剥下来写到 out.role
+  //      只在 author 已确定时做。"著"/"撰" 归一化为空（"著"按 spec §6.2 自动省略）
+  if (out.author) {
+    const roleRe = /(编著|编译|主编|选编|编辑|编校|编)$/;
+    const rm = out.author.match(roleRe);
+    if (rm) {
+      const marker = rm[1];
+      out.author = out.author.slice(0, -marker.length).trim();
+      out.role = marker;
+    } else {
+      const omitRe = /(著|撰)$/;
+      const om = out.author.match(omitRe);
+      if (om) {
+        out.author = out.author.slice(0, -om[1].length).trim();
+        out.role = '';  // "著"/"撰" → 空
       }
     }
   }

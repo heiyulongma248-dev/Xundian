@@ -3105,7 +3105,33 @@ function populateGlobalFormatSelectors() {
 
 // 占位：被任务 2.6 实现
 function rerenderAllCitations() {
-  // 阶段 2 后面会实现
+  const formatId = window.xdFormats.getActiveFormatId();
+  const template = window.xdFormats.getBuiltinTemplate(formatId);
+  if (!template) return;
+  const fmtName = (window.xdFormats.BUILTIN_FORMATS.find(f => f.id === formatId) || {}).name || formatId;
+
+  // 遍历所有 chip 卡片
+  document.querySelectorAll('.fmt-chip').forEach(chip => {
+    const cardId = chip.dataset.cardId;
+    const cardData = _cardMetaMap.get(cardId);
+    if (!cardData) return;
+    let newCitation;
+    try {
+      newCitation = window.xdFormats.renderCitation({
+        template,
+        meta: cardData.meta,
+        book_page: cardData.book_page,
+        book_page_end: cardData.book_page_end,
+        pdf_page: cardData.pdf_page,
+      });
+    } catch (_) {
+      return;
+    }
+    chip.dataset.currentFmt = formatId;
+    chip.textContent = `📐 ${fmtName} ▾`;
+    const textEl = document.querySelector(`.cand-citation-text[data-card-id="${cardId}"]`);
+    if (textEl) textEl.textContent = newCitation;
+  });
 }
 
 async function bootstrap() {

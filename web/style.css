@@ -757,3 +757,37 @@ body.multiselect-active .book-card .actions { display: none; }
 .fmt-chip-menu .item:hover { background: #f0f6ff; }
 .fmt-chip-menu .item.active { font-weight: 600; color: #1d4ed8; }
 .fmt-chip-menu .divider { height: 1px; background: #eaeef2; margin: 4px 0; }
+
+/* 格式管理 tab */
+.fmt-list-section {
+  margin-top: 16px;
+}
+.fmt-list-section h3 {
+  font-size: 12px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+  color: #666;
+  margin: 12px 0 8px;
+}
+.fmt-list {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.fmt-item {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 8px 12px;
+  background: white;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+}
+.fmt-item-name { font-weight: 500; }
+.fmt-item-meta { color: #999; font-size: 11px; margin-left: 8px; }
+.fmt-item-actions button {
+  margin-left: 4px;
+  font-size: 11px;
+}
+.fmt-item-default { color: #16a34a; font-size: 11px; margin-left: 6px; }
+.fmt-item-modified { color: #f59e0b; font-size: 11px; margin-left: 6px; }

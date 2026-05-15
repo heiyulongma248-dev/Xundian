@@ -72,6 +72,7 @@
     <button class="tab-btn" data-tab="library">📚 我的书架</button>
     <button class="tab-btn active" data-tab="scan">📄 文档扫描</button>
     <button class="tab-btn" data-tab="lookup">🔍 单句查询</button>
+    <button class="tab-btn" data-tab="formats">📐 引用格式</button>
   </nav>
   <button class="btn-icon" id="btn-settings" title="设置">⚙</button>
 </header>
@@ -189,6 +190,28 @@
     </div>
 
     <div id="lookup-results" class="result-list"></div>
+  </section>
+
+  <!-- ========== 引用格式 ========== -->
+  <section class="tab-panel" id="tab-formats">
+    <div class="panel-header">
+      <h2>引用格式</h2>
+      <div>
+        <button class="btn-secondary" id="btn-fmt-new-blank">＋ 空白新建</button>
+        <button class="btn-secondary" id="btn-fmt-infer">📥 从样例反推</button>
+        <button class="btn-secondary" id="btn-fmt-import">📂 导入 JSON</button>
+        <input type="file" id="fmt-import-file" accept=".json" style="display:none;" />
+      </div>
+    </div>
+    <p class="hint">所有结果卡片和 .md 导出按"全局选择"的格式渲染。卡片上的 ▾ 按钮可临时切换单卡格式。</p>
+    <div id="fmt-list-builtin" class="fmt-list-section">
+      <h3>内置</h3>
+      <div class="fmt-list" id="fmt-list-builtin-items"></div>
+    </div>
+    <div id="fmt-list-user" class="fmt-list-section">
+      <h3>我的</h3>
+      <div class="fmt-list" id="fmt-list-user-items"></div>
+    </div>
   </section>
 </main>
 

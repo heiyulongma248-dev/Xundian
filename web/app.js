@@ -742,6 +742,7 @@ function switchTab(target) {
   $$('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === target));
   $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === `tab-${target}`));
   if (target === 'library') refreshBookList();
+  if (target === 'formats') renderFormatList();
 }
 
 $$('.tab-btn').forEach((btn) => {
@@ -3076,6 +3077,46 @@ function _updateBootPhase(phase, detail) {
 // =========================================================
 // 全局格式选择器
 // =========================================================
+
+async function renderFormatList() {
+  const all = await window.xdFormats.listAllFormats();
+  const builtinHtml = all.filter(f => f.category === 'builtin').map(f => {
+    const isDefault = f.id === window.xdFormats.DEFAULT_FORMAT_ID;
+    const isModified = window.xdFormats.isModifiedBuiltin(f);
+    return `
+      <div class="fmt-item" data-fmt-id="${escapeHtml(f.id)}">
+        <div>
+          <span class="fmt-item-name">${escapeHtml(f.name)}</span>
+          ${isDefault ? '<span class="fmt-item-default">★ 默认</span>' : ''}
+          ${isModified ? '<span class="fmt-item-modified">●已修改</span>' : ''}
+        </div>
+        <div class="fmt-item-actions">
+          <button class="btn-tiny" data-action="edit">编辑</button>
+          <button class="btn-tiny" data-action="clone">基于此新建</button>
+          ${isModified ? '<button class="btn-tiny" data-action="reset">重置</button>' : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  const userHtml = all.filter(f => f.category === 'user').map(f => {
+    return `
+      <div class="fmt-item" data-fmt-id="${escapeHtml(f.id)}">
+        <div>
+          <span class="fmt-item-name">${escapeHtml(f.name)}</span>
+          ${f.parent_id ? `<span class="fmt-item-meta">克隆自 ${escapeHtml((window.xdFormats.BUILTIN_FORMATS.find(b => b.id === f.parent_id) || {}).name || f.parent_id)}</span>` : ''}
+        </div>
+        <div class="fmt-item-actions">
+          <button class="btn-tiny" data-action="edit">编辑</button>
+          <button class="btn-tiny" data-action="export">导出 JSON</button>
+          <button class="btn-tiny" data-action="delete">删除</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('fmt-list-builtin-items').innerHTML = builtinHtml;
+  document.getElementById('fmt-list-user-items').innerHTML = userHtml
+    || '<div class="hint" style="padding:12px;">还没有自定义格式 — 用上面三个按钮新建。</div>';
+}
 
 async function populateGlobalFormatSelectors() {
   const all = await window.xdFormats.listAllFormats();

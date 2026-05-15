@@ -3277,9 +3277,11 @@ async function openTemplateEditor(options) {
     return span;
   }
 
-  // 造一个"可选段"chip 节点（绿色），visually: [prefix(可编辑)] [?字段 pill] [suffix(可编辑)]
-  // 外层 contenteditable=false → Backspace 删整段；
-  // 内部 .opt-lit 重新 contenteditable=true → 用户可直接修改 prefix/suffix。
+  // 造一个"可选段"chip 节点（绿色），visually: [prefix(可编辑)] [?字段 pill] [suffix(可编辑)] [×]
+  // 外层 contenteditable=false → 整段是原子单元；
+  // 内部 .opt-lit 重新 contenteditable=true → 用户可直接修改 prefix/suffix；
+  // 悬停时显示 × 按钮 → 一键删整段；
+  // 此外加 keydown 处理：在 prefix 头按 Backspace 或 suffix 尾按 Delete 也删整段。
   function makeOptChip(field, prefix, suffix) {
     const span = document.createElement('span');
     span.className = 'tpl-token tpl-token-opt';
@@ -3309,6 +3311,13 @@ async function openTemplateEditor(options) {
     suf.spellcheck = false;
     suf.textContent = suffix || '';
     span.appendChild(suf);
+    // × 删除按钮（悬停时显示）
+    const close = document.createElement('span');
+    close.className = 'opt-close';
+    close.contentEditable = 'false';
+    close.title = '删除整段';
+    close.textContent = '×';
+    span.appendChild(close);
     return span;
   }
 
@@ -3466,6 +3475,64 @@ async function openTemplateEditor(options) {
 
     taEl.addEventListener('input', refresh);
     sampleEl.addEventListener('change', refresh);
+
+    // ×按钮点击 → 删除整个可选段 chip（事件代理，因为 chip 是动态生成的）
+    taEl.addEventListener('click', (e) => {
+      const close = e.target && e.target.closest && e.target.closest('.opt-close');
+      if (!close) return;
+      e.preventDefault();
+      e.stopPropagation();
+      const chip = close.closest('.tpl-token-opt');
+      if (chip) {
+        chip.remove();
+        refresh();
+        taEl.focus();
+      }
+    });
+
+    // 键盘：在 prefix 起点 Backspace / 在 suffix 末尾 Delete → 删整段
+    taEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Backspace' && e.key !== 'Delete') return;
+      const sel = window.getSelection();
+      if (!sel.rangeCount || !sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      const node = range.startContainer;
+      const offset = range.startOffset;
+
+      // 在 opt chip 内部？
+      const startEl = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      const optChip = startEl && startEl.closest && startEl.closest('.tpl-token-opt');
+      if (!optChip || !taEl.contains(optChip)) return;
+
+      const preEl = optChip.querySelector(':scope > .opt-lit[data-role="prefix"]');
+      const sufEl = optChip.querySelector(':scope > .opt-lit[data-role="suffix"]');
+
+      if (e.key === 'Backspace') {
+        // 光标在 prefix 头 (offset==0) → 删整段
+        const inPrefix = preEl && (preEl === node || preEl.contains(node));
+        if (inPrefix && offset === 0) {
+          e.preventDefault();
+          optChip.remove();
+          refresh();
+          taEl.focus();
+        }
+      } else if (e.key === 'Delete') {
+        // 光标在 suffix 尾 → 删整段
+        const inSuffix = sufEl && (sufEl === node || sufEl.contains(node));
+        if (inSuffix) {
+          const textLen = sufEl.textContent.length;
+          const atEnd = (node === sufEl && offset === sufEl.childNodes.length)
+                    || (node.nodeType === Node.TEXT_NODE && offset === node.length
+                        && (sufEl.lastChild === node || sufEl.lastChild.contains(node)));
+          if (atEnd) {
+            e.preventDefault();
+            optChip.remove();
+            refresh();
+            taEl.focus();
+          }
+        }
+      }
+    });
 
     // 阻止 contenteditable 默认的富文本粘贴（只保留纯文本）
     taEl.addEventListener('paste', (e) => {

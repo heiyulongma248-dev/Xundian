@@ -3118,6 +3118,138 @@ async function renderFormatList() {
     || '<div class="hint" style="padding:12px;">还没有自定义格式 — 用上面三个按钮新建。</div>';
 }
 
+// 模板编辑器 modal
+//   options: { mode: 'edit'|'create-blank'|'clone', initialFormat: {name, template, parent_id?} }
+//   returns Promise that resolves to { name, template, parent_id? } on save, or null on cancel
+async function openTemplateEditor(options) {
+  const initial = options.initialFormat || { name: '', template: '', parent_id: null };
+  const insertableFields = ['author', 'role', 'country', 'title', 'translator', 'edition', 'doc_type', 'place', 'publisher', 'year', 'page'];
+  // 字段插入按钮 — 普通字段
+  const requiredButtonsHtml = insertableFields.map(f =>
+    `<button class="mock-button tpl-insert-btn" data-insert="{${f}}" type="button">+ {${f}}</button>`
+  ).join('');
+  // 可选段按钮：常见的可选字段
+  const optionalFields = ['role', 'country', 'translator', 'edition'];
+  const optionalButtonsHtml = optionalFields.map(f =>
+    `<button class="mock-button tpl-insert-btn" data-insert="{?${f} {}}" type="button">+ {?${f}}</button>`
+  ).join('');
+
+  const sampleBooks = [
+    {
+      label: '完整字段（任继愈主编《中国哲学发展史》）',
+      meta: { author: '任继愈', role: '主编', country: '', translator: '', edition: '', title: '中国哲学发展史（先秦卷）', doc_type: 'M', place: '北京', publisher: '人民出版社', year: '1983' },
+      book_page: 25, book_page_end: null, pdf_page: null,
+    },
+    {
+      label: '译著（实藤惠秀《中国人留学日本史》）',
+      meta: { author: '实藤惠秀', role: '', country: '日', translator: '谭汝谦、林启彦', edition: '', title: '中国人留学日本史', doc_type: 'M', place: '香港', publisher: '中文大学出版社', year: '1982' },
+      book_page: 11, book_page_end: 12, pdf_page: null,
+    },
+    {
+      label: '带版次（黄仁宇《万历十五年》第2版）',
+      meta: { author: '黄仁宇', role: '著', country: '', translator: '', edition: '2', title: '万历十五年', doc_type: 'M', place: '北京', publisher: '中华书局', year: '2007' },
+      book_page: 1, book_page_end: null, pdf_page: null,
+    },
+  ];
+
+  const bodyHtml = `
+    <label>名称</label>
+    <input id="tpl-name" value="${escapeHtml(initial.name)}" />
+
+    <label>模板</label>
+    <textarea id="tpl-template" rows="4" class="tpl-textarea">${escapeHtml(initial.template)}</textarea>
+
+    <div class="tpl-insert-row">
+      <span class="hint">必填占位（空则显示"〔X待补〕"）：</span>
+      ${requiredButtonsHtml}
+    </div>
+    <div class="tpl-insert-row">
+      <span class="hint">可选段（空则整段消失）：</span>
+      ${optionalButtonsHtml}
+    </div>
+
+    <label>实时预览（点切换样书 →）
+      <select id="tpl-sample">
+        ${sampleBooks.map((s, i) => `<option value="${i}">${escapeHtml(s.label)}</option>`).join('')}
+      </select>
+    </label>
+    <div id="tpl-preview" class="tpl-preview">（待渲染）</div>
+    <div id="tpl-error" class="tpl-error hidden"></div>
+  `;
+
+  const titles = {
+    'edit': '编辑格式',
+    'clone': '基于此新建',
+    'create-blank': '新建格式',
+  };
+
+  // 用 setTimeout 在 modal 打开后绑定动态事件（实时预览 / 插入按钮）
+  const setupListeners = () => {
+    const taEl = document.getElementById('tpl-template');
+    const sampleEl = document.getElementById('tpl-sample');
+    const previewEl = document.getElementById('tpl-preview');
+    const errorEl = document.getElementById('tpl-error');
+    if (!taEl) return;  // modal hasn't rendered yet — bail and let next setupListeners try
+
+    function refresh() {
+      const tpl = taEl.value;
+      const sampleIdx = parseInt(sampleEl.value, 10) || 0;
+      const sb = sampleBooks[sampleIdx];
+      try {
+        const out = window.xdFormats.renderCitation({
+          template: tpl, meta: sb.meta,
+          book_page: sb.book_page, book_page_end: sb.book_page_end, pdf_page: sb.pdf_page,
+        });
+        previewEl.textContent = out;
+        errorEl.classList.add('hidden');
+        taEl.classList.remove('error');
+      } catch (err) {
+        previewEl.textContent = '（无法预览 — 见下方错误）';
+        errorEl.textContent = `模板语法错误：${err.message}`;
+        errorEl.classList.remove('hidden');
+        taEl.classList.add('error');
+      }
+    }
+
+    taEl.addEventListener('input', refresh);
+    sampleEl.addEventListener('change', refresh);
+    document.querySelectorAll('.tpl-insert-btn').forEach(b => {
+      b.addEventListener('click', () => {
+        const ins = b.dataset.insert;
+        const start = taEl.selectionStart;
+        const end = taEl.selectionEnd;
+        taEl.value = taEl.value.slice(0, start) + ins + taEl.value.slice(end);
+        taEl.selectionStart = taEl.selectionEnd = start + ins.length;
+        taEl.focus();
+        refresh();
+      });
+    });
+    refresh();
+  };
+
+  // 用 setTimeout 让 showModal 先把 DOM 注入，然后绑事件
+  setTimeout(setupListeners, 0);
+
+  const result = await showModal({
+    title: titles[options.mode] || '编辑格式',
+    bodyHtml,
+    onOk: async () => {
+      const name = (document.getElementById('tpl-name').value || '').trim();
+      const template = document.getElementById('tpl-template').value;
+      if (!name) { alert('请填名称'); return false; }
+      try {
+        window.xdFormats.parseTemplate(template);
+      } catch (err) {
+        alert('模板语法错误：' + err.message);
+        return false;
+      }
+      return { name, template, parent_id: initial.parent_id || null };
+    },
+  });
+
+  return result || null;
+}
+
 async function populateGlobalFormatSelectors() {
   const all = await window.xdFormats.listAllFormats();
   const builtins = all.filter(f => f.category === 'builtin');

@@ -791,3 +791,42 @@ body.multiselect-active .book-card .actions { display: none; }
 }
 .fmt-item-default { color: #16a34a; font-size: 11px; margin-left: 6px; }
 .fmt-item-modified { color: #f59e0b; font-size: 11px; margin-left: 6px; }
+
+/* 模板编辑器 modal */
+.tpl-textarea {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  font-size: 12px;
+  width: 100%;
+}
+.tpl-textarea.error {
+  border-color: #dc2626;
+  background: #fef2f2;
+}
+.tpl-insert-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 6px 0;
+  align-items: center;
+}
+.tpl-insert-row .hint {
+  margin-right: 4px;
+  margin-bottom: 0;
+}
+.tpl-preview {
+  font-family: 'Source Han Serif', "Songti SC", "STSong", serif;
+  font-size: 14px;
+  background: #fffbeb;
+  border: 1px solid #fde68a;
+  border-radius: 4px;
+  padding: 8px;
+  min-height: 32px;
+}
+.tpl-error {
+  color: #dc2626;
+  background: #fef2f2;
+  border-left: 3px solid #dc2626;
+  padding: 6px 10px;
+  font-size: 12px;
+  margin-top: 6px;
+}

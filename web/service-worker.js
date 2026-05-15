@@ -7,7 +7,7 @@
 
 'use strict';
 
-const CACHE_NAME = 'xundian-v4';
+const CACHE_NAME = 'xundian-v5';
 const SELF_ASSETS = [
   './',
   'index.html',
@@ -19,6 +19,7 @@ const SELF_ASSETS = [
   'fs-bridge.js',
   'pdf-extract.js',
   'db.js',
+  'formats.js',
   'manifest.json',
   'pysrc/__init__.py',
   'pysrc/extract_quotes.py',
@@ -27,6 +28,7 @@ const SELF_ASSETS = [
   'pysrc/citation.py',
   'pysrc/render_report.py',
   'pysrc/web_api.py',
+  'pysrc/formats.py',
   // 本地 vendor 的 CDN 依赖
   'lib/pdfjs/pdf.min.js',
   'lib/pdfjs/pdf.worker.min.js',

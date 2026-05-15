@@ -531,7 +531,7 @@ const API_DISPATCH = {
     // 缓存给 renderResultCard 用：当 Python 没返回 candidate.citation（例如 SW
     // 还在用旧版 pysrc 缓存）时，JS 端能根据 book_file 自己拼一条 fallback。
     _lastBooksMeta = booksMeta || {};
-    const formatId = window.xdFormats.getActiveFormatId();
+    const { id: formatId, template: formatTemplate } = await _resolveActiveFormatPayload();
     const result = await window.py.call(
       'scan_document',
       _stagedDocx.bytes,
@@ -539,7 +539,7 @@ const API_DISPATCH = {
       booksMeta,
       _stagedDocx.name,
       formatId,
-      null,
+      formatTemplate,
     );
     return { ok: true, ...(result || {}) };
   },
@@ -549,7 +549,7 @@ const API_DISPATCH = {
     const booksData = await window.dbHelpers.getBooksPagesData(fileIds);
     const booksMeta = await window.dbHelpers.getBooksMeta();
     _lastBooksMeta = booksMeta || {};
-    const formatId = window.xdFormats.getActiveFormatId();
+    const { id: formatId, template: formatTemplate } = await _resolveActiveFormatPayload();
     const result = await window.py.call(
       'lookup_quote',
       quote,
@@ -558,7 +558,7 @@ const API_DISPATCH = {
       booksData,
       booksMeta,
       formatId,
-      null,
+      formatTemplate,
     );
     return { ok: true, ...(result || {}) };
   },
@@ -573,8 +573,8 @@ const API_DISPATCH = {
 
   // —— 导出 ——
   async export_report(suggestedName) {
-    const formatId = window.xdFormats.getActiveFormatId();
-    const bytes = await window.py.call('export_report_bytes', formatId, null);
+    const { id: formatId, template: formatTemplate } = await _resolveActiveFormatPayload();
+    const bytes = await window.py.call('export_report_bytes', formatId, formatTemplate);
     if (!bytes) throw new Error('导出失败：Python 没返回字节流');
     const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     const r = await window.fs.downloadBytes(arr, suggestedName || '引文核对表.docx');
@@ -1783,23 +1783,28 @@ document.addEventListener('click', async (e) => {
   }
 });
 
-function showFmtChipMenu(chip) {
-  // 关闭其它已开菜单
+async function showFmtChipMenu(chip) {
   document.querySelectorAll('.fmt-chip-menu').forEach(el => el.remove());
-
   const cardId = chip.dataset.cardId;
   const currentFmt = chip.dataset.currentFmt;
-  const builtins = window.xdFormats.BUILTIN_FORMATS;
+  const all = await window.xdFormats.listAllFormats();
+  const builtins = all.filter(f => f.category === 'builtin');
+  const users = all.filter(f => f.category === 'user');
 
-  const menu = document.createElement('div');
-  menu.className = 'fmt-chip-menu';
-  menu.innerHTML = builtins.map(f =>
+  const renderItems = (arr) => arr.map(f =>
     `<div class="item${f.id === currentFmt ? ' active' : ''}" data-fmt-id="${escapeHtml(f.id)}">
        ${f.id === currentFmt ? '✓ ' : '　 '}${escapeHtml(f.name)}
      </div>`
   ).join('');
 
-  // 定位在 chip 下方
+  let html = renderItems(builtins);
+  if (users.length) html += '<div class="divider"></div>' + renderItems(users);
+  html += '<div class="divider"></div>'
+       + '<div class="item" data-fmt-id="__manage__">＋ 管理格式…</div>';
+
+  const menu = document.createElement('div');
+  menu.className = 'fmt-chip-menu';
+  menu.innerHTML = html;
   const rect = chip.getBoundingClientRect();
   menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
   menu.style.left = `${rect.left + window.scrollX}px`;
@@ -1809,39 +1814,35 @@ function showFmtChipMenu(chip) {
     const item = e.target.closest('.item');
     if (!item) return;
     const newFmtId = item.dataset.fmtId;
-    applyCardFormatOverride(cardId, newFmtId);
+    if (newFmtId === '__manage__') {
+      const tab = document.querySelector('.tab-btn[data-tab="formats"]');
+      if (tab) tab.click();
+    } else {
+      applyCardFormatOverride(cardId, newFmtId);
+    }
     menu.remove();
   });
 }
 
-function applyCardFormatOverride(cardId, formatId) {
+async function applyCardFormatOverride(cardId, formatId) {
   const cardData = _cardMetaMap.get(cardId);
   if (!cardData) return;
-
-  const template = window.xdFormats.getBuiltinTemplate(formatId);
-  if (!template) return;
-
+  const fmt = await window.xdFormats.getFormatById(formatId);
+  if (!fmt) return;
   let newCitation;
   try {
     newCitation = window.xdFormats.renderCitation({
-      template,
+      template: fmt.template,
       meta: cardData.meta,
       book_page: cardData.book_page,
       book_page_end: cardData.book_page_end,
       pdf_page: cardData.pdf_page,
     });
   } catch (err) {
-    console.error('卡片重渲染失败：', err);
-    return;
+    console.error(err); return;
   }
-
-  // 更新 chip 和 citation 文本（只动这张卡）
-  const fmtName = (window.xdFormats.BUILTIN_FORMATS.find(f => f.id === formatId) || {}).name || formatId;
   const chip = document.querySelector(`.fmt-chip[data-card-id="${cardId}"]`);
-  if (chip) {
-    chip.dataset.currentFmt = formatId;
-    chip.textContent = `📐 ${fmtName} ▾`;
-  }
+  if (chip) { chip.dataset.currentFmt = formatId; chip.textContent = `📐 ${fmt.name} ▾`; }
   const textEl = document.querySelector(`.cand-citation-text[data-card-id="${cardId}"]`);
   if (textEl) textEl.textContent = newCitation;
 }
@@ -3250,6 +3251,18 @@ async function openTemplateEditor(options) {
   return result || null;
 }
 
+async function _resolveActiveFormatPayload() {
+  const id = window.xdFormats.getActiveFormatId();
+  const fmt = await window.xdFormats.getFormatById(id);
+  // 内置且未修改 → template 留 null（Python 端能查到 id）
+  // 用户 / 已修改的内置 → template 也传过去
+  if (!fmt) return { id, template: null };
+  if (fmt.category === 'builtin' && !window.xdFormats.isModifiedBuiltin(fmt)) {
+    return { id, template: null };
+  }
+  return { id, template: fmt.template };
+}
+
 async function populateGlobalFormatSelectors() {
   const all = await window.xdFormats.listAllFormats();
   const builtins = all.filter(f => f.category === 'builtin');
@@ -3389,14 +3402,10 @@ async function handleFormatDelete(fmtId) {
 async function handleFormatExport(fmtId) { alert('导出功能待阶段 4 实现'); }
 
 
-// 占位：被任务 2.6 实现
-function rerenderAllCitations() {
-  const formatId = window.xdFormats.getActiveFormatId();
-  const template = window.xdFormats.getBuiltinTemplate(formatId);
-  if (!template) return;
-  const fmtName = (window.xdFormats.BUILTIN_FORMATS.find(f => f.id === formatId) || {}).name || formatId;
-
-  // 遍历所有 chip 卡片
+async function rerenderAllCitations() {
+  const id = window.xdFormats.getActiveFormatId();
+  const fmt = await window.xdFormats.getFormatById(id);
+  if (!fmt) return;
   document.querySelectorAll('.fmt-chip').forEach(chip => {
     const cardId = chip.dataset.cardId;
     const cardData = _cardMetaMap.get(cardId);
@@ -3404,17 +3413,15 @@ function rerenderAllCitations() {
     let newCitation;
     try {
       newCitation = window.xdFormats.renderCitation({
-        template,
+        template: fmt.template,
         meta: cardData.meta,
         book_page: cardData.book_page,
         book_page_end: cardData.book_page_end,
         pdf_page: cardData.pdf_page,
       });
-    } catch (_) {
-      return;
-    }
-    chip.dataset.currentFmt = formatId;
-    chip.textContent = `📐 ${fmtName} ▾`;
+    } catch (_) { return; }
+    chip.dataset.currentFmt = id;
+    chip.textContent = `📐 ${fmt.name} ▾`;
     const textEl = document.querySelector(`.cand-citation-text[data-card-id="${cardId}"]`);
     if (textEl) textEl.textContent = newCitation;
   });

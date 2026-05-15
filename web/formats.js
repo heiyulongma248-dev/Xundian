@@ -204,6 +204,40 @@ function setActiveFormatId(id) {
 }
 
 
+// —— 合并内置 + IndexedDB 的视图 ——
+// 优先 IndexedDB：用户修改内置时会以同 id 写入 IndexedDB 覆盖。
+
+async function listAllFormats() {
+  const userOrOverridden = await window.db.listFormats();
+  const overrideById = new Map(userOrOverridden.map(f => [f.id, f]));
+  const merged = BUILTIN_FORMATS.map(b => overrideById.get(b.id) || b);
+  // 加进所有不在 builtin id 集合里的 user 格式
+  const builtinIds = new Set(BUILTIN_FORMATS.map(f => f.id));
+  for (const f of userOrOverridden) {
+    if (!builtinIds.has(f.id)) merged.push(f);
+  }
+  return merged;
+}
+
+async function getFormatById(id) {
+  const fromDb = await window.db.getFormat(id);
+  if (fromDb) return fromDb;
+  for (const b of BUILTIN_FORMATS) if (b.id === id) return b;
+  return null;
+}
+
+async function resolveTemplateForId(id) {
+  const f = await getFormatById(id);
+  return f ? f.template : null;
+}
+
+function isModifiedBuiltin(fmt) {
+  // 来自 IndexedDB 且 id 在内置集合里 → 是"已修改的内置"
+  return fmt.category === 'builtin'
+      && BUILTIN_FORMATS.some(b => b.id === fmt.id);
+}
+
+
 // 暴露给浏览器和测试（globalThis.window 在 Node 测试里被预先 stub）
 window.xdFormats = {
   renderCitation,
@@ -215,4 +249,9 @@ window.xdFormats = {
   VALID_FIELDS: [...VALID_FIELDS],
   getActiveFormatId,
   setActiveFormatId,
+  // 新增 (Task 3.2):
+  listAllFormats,
+  getFormatById,
+  resolveTemplateForId,
+  isModifiedBuiltin,
 };

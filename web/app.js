@@ -3077,30 +3077,44 @@ function _updateBootPhase(phase, detail) {
 // 全局格式选择器
 // =========================================================
 
-function populateGlobalFormatSelectors() {
-  const builtins = window.xdFormats.BUILTIN_FORMATS;
-  // 阶段 2 不支持用户格式，先只列内置
-  const optsHtml = builtins.map(f =>
-    `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`
-  ).join('');
+async function populateGlobalFormatSelectors() {
+  const all = await window.xdFormats.listAllFormats();
+  const builtins = all.filter(f => f.category === 'builtin');
+  const users = all.filter(f => f.category === 'user');
+
+  let optsHtml = '<optgroup label="内置">';
+  optsHtml += builtins.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}${window.xdFormats.isModifiedBuiltin(f) ? ' ●已修改' : ''}</option>`).join('');
+  optsHtml += '</optgroup>';
+  if (users.length) {
+    optsHtml += '<optgroup label="我的">';
+    optsHtml += users.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`).join('');
+    optsHtml += '</optgroup>';
+  }
+  optsHtml += '<optgroup label="操作"><option value="__manage__">＋ 管理格式…</option></optgroup>';
 
   for (const selId of ['lookup-format-select', 'scan-format-select']) {
     const sel = document.getElementById(selId);
     if (!sel) continue;
     sel.innerHTML = optsHtml;
-    sel.value = window.xdFormats.getActiveFormatId();
-    sel.addEventListener('change', (e) => {
+    const active = window.xdFormats.getActiveFormatId();
+    sel.value = active;
+    sel.onchange = (e) => {
+      if (e.target.value === '__manage__') {
+        // 切到管理 tab
+        const tab = document.querySelector('.tab-btn[data-tab="formats"]');
+        if (tab) tab.click();
+        e.target.value = active;
+        return;
+      }
       window.xdFormats.setActiveFormatId(e.target.value);
-      // 同步另一个选择器
       for (const otherId of ['lookup-format-select', 'scan-format-select']) {
         if (otherId !== selId) {
           const other = document.getElementById(otherId);
           if (other) other.value = e.target.value;
         }
       }
-      // 重渲染当前页面所有已显示的卡片
       rerenderAllCitations();
-    });
+    };
   }
 }
 
@@ -3173,7 +3187,7 @@ async function bootstrap() {
   setStatus('就绪');
 
   // 填充全局格式选择器
-  populateGlobalFormatSelectors();
+  await populateGlobalFormatSelectors();
 
   // 5. 数据目录展示（在欢迎卡里）
   try {

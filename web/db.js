@@ -228,6 +228,11 @@ window.dbHelpers = {
         place: b.place || 'XX',
         publisher: b.publisher || 'XX出版社',
         year: b.year || '0000',
+        // 新增 4 字段（默认空串，按"留空"语义）
+        role: b.role || '',
+        country: b.country || '',
+        translator: b.translator || '',
+        edition: b.edition || '',
         page_offset: b.page_offset != null ? b.page_offset : null,
         folder: b.folder || null,
         // 运行时字段
@@ -251,6 +256,11 @@ window.dbHelpers = {
         place: b.place || 'XX',
         publisher: b.publisher || 'XX出版社',
         year: b.year || '0000',
+        // 新增 4 字段
+        role: b.role || '',
+        country: b.country || '',
+        translator: b.translator || '',
+        edition: b.edition || '',
       };
     }
     return out;

@@ -531,12 +531,15 @@ const API_DISPATCH = {
     // 缓存给 renderResultCard 用：当 Python 没返回 candidate.citation（例如 SW
     // 还在用旧版 pysrc 缓存）时，JS 端能根据 book_file 自己拼一条 fallback。
     _lastBooksMeta = booksMeta || {};
+    const formatId = window.xdFormats.getActiveFormatId();
     const result = await window.py.call(
       'scan_document',
       _stagedDocx.bytes,
       booksData,
       booksMeta,
       _stagedDocx.name,
+      formatId,
+      null,
     );
     return { ok: true, ...(result || {}) };
   },
@@ -546,6 +549,7 @@ const API_DISPATCH = {
     const booksData = await window.dbHelpers.getBooksPagesData(fileIds);
     const booksMeta = await window.dbHelpers.getBooksMeta();
     _lastBooksMeta = booksMeta || {};
+    const formatId = window.xdFormats.getActiveFormatId();
     const result = await window.py.call(
       'lookup_quote',
       quote,
@@ -553,6 +557,8 @@ const API_DISPATCH = {
       ctxAfter || '',
       booksData,
       booksMeta,
+      formatId,
+      null,
     );
     return { ok: true, ...(result || {}) };
   },

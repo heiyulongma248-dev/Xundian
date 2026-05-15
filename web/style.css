@@ -901,61 +901,37 @@ body.multiselect-active .book-card .actions { display: none; }
 
 /* 内联 chip（模板字符串里 {field} 渲染出来的样子） */
 .tpl-token {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 1px 8px;
+  margin: 0 1px;
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  border-radius: 10px;
   user-select: none;
   cursor: grab;
   vertical-align: baseline;
   white-space: nowrap;
 }
-
-/* 必填占位：单纯一个紫色 pill */
 .tpl-token-req {
-  display: inline-block;
-  padding: 1px 8px;
-  margin: 0 1px;
-  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
-  line-height: 1.4;
-  border-radius: 10px;
   background: #eef2ff;
   color: #3730a3;
   border: 1px solid #c7d2fe;
 }
-
-/* 可选段：外层无背景，仅作"原子单元"容器；内部 prefix/suffix 像普通文字，?字段 才是绿 pill */
 .tpl-token-opt {
-  display: inline;
-  margin: 0;
-  padding: 0;
-  background: transparent;
-  border: 0;
-  color: inherit;
-}
-.tpl-token-opt .opt-lit {
-  /* 字面前/后缀：跟随编辑器主字体，颜色稍淡示意"和左/右那个 chip 是一组" */
-  color: #6b7280;
-  font-family: inherit;
-  font-size: inherit;
-}
-.tpl-token-opt .opt-main {
-  /* ?字段 主体：绿色小 pill */
-  display: inline-block;
-  padding: 1px 8px;
-  margin: 0 1px;
-  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
-  font-size: 13px;
-  line-height: 1.4;
-  border-radius: 10px;
   background: #ecfdf5;
   color: #047857;
   border: 1px solid #a7f3d0;
-  font-weight: 600;
+  gap: 1px;
 }
-/* 鼠标悬停整段 → 给 prefix/suffix 加底纹，提示"这三块是一个原子单元，删一次全没" */
-.tpl-token-opt:hover .opt-lit {
-  background: #ecfdf5;
-  border-radius: 2px;
-  outline: 1px dashed #a7f3d0;
-  outline-offset: 0;
+.tpl-token-opt .opt-lit {
+  color: #6b7280;
+  font-family: 'Source Han Serif SC', 'Songti SC', serif;
+  font-weight: normal;
+}
+.tpl-token-opt .opt-main {
+  font-weight: 600;
 }
 
 .tpl-section,

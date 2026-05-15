@@ -3318,6 +3318,10 @@ document.addEventListener('click', async (e) => {
     await openInferFlow();
     return;
   }
+  if (e.target && e.target.id === 'btn-fmt-import') {
+    document.getElementById('fmt-import-file').click();
+    return;
+  }
   // 列表项里的按钮
   const action = e.target && e.target.dataset && e.target.dataset.action;
   if (!action) return;
@@ -3329,6 +3333,44 @@ document.addEventListener('click', async (e) => {
   if (action === 'reset') return handleFormatReset(fmtId);
   if (action === 'delete') return handleFormatDelete(fmtId);
   if (action === 'export') return handleFormatExport(fmtId);
+});
+
+
+// 导入 JSON 的文件选择监听（Task 4.4）
+document.addEventListener('change', async (e) => {
+  if (e.target && e.target.id === 'fmt-import-file') {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';  // 允许再次选同名文件
+    let parsed;
+    try {
+      const text = await file.text();
+      parsed = JSON.parse(text);
+    } catch (err) {
+      alert('JSON 解析失败：' + err.message);
+      return;
+    }
+    const valid = window.xdFormats.validateImportedFormat(parsed);
+    if (!valid.ok) {
+      alert('导入失败：' + valid.error);
+      return;
+    }
+    // 同名重复 → 提示
+    const all = await window.xdFormats.listAllFormats();
+    if (all.some(f => f.name === valid.name)) {
+      const choice = prompt(`已存在同名格式 "${valid.name}"。\n输入新名（直接确认则用同名 + (导入)）：`, valid.name + ' (导入)');
+      if (choice === null) return;
+      valid.name = (choice || '').trim() || (valid.name + ' (导入)');
+    }
+    await saveNewUserFormat({
+      name: valid.name,
+      template: valid.template,
+      parent_id: valid.based_on || null,
+    });
+    await renderFormatList();
+    await populateGlobalFormatSelectors();
+    alert('导入成功：' + valid.name);
+  }
 });
 
 

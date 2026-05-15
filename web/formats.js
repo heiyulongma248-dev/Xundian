@@ -279,6 +279,20 @@ function inferTemplateFromSample({ refMeta, sample, refPage }) {
 }
 
 
+function validateImportedFormat(obj) {
+  // 返回 { ok: true, name, template, based_on? } 或 { ok: false, error }
+  if (!obj || typeof obj !== 'object') return { ok: false, error: '不是有效 JSON 对象' };
+  if (!obj.name || typeof obj.name !== 'string') return { ok: false, error: '缺 name' };
+  if (!obj.template || typeof obj.template !== 'string') return { ok: false, error: '缺 template' };
+  try {
+    parseTemplate(obj.template);
+  } catch (err) {
+    return { ok: false, error: '模板语法错误：' + err.message };
+  }
+  return { ok: true, name: obj.name.trim(), template: obj.template, based_on: obj.based_on || null };
+}
+
+
 // 暴露给浏览器和测试（globalThis.window 在 Node 测试里被预先 stub）
 window.xdFormats = {
   renderCitation,
@@ -297,4 +311,6 @@ window.xdFormats = {
   isModifiedBuiltin,
   // 新增 (Task 4.1):
   inferTemplateFromSample,
+  // 新增 (Task 4.4):
+  validateImportedFormat,
 };

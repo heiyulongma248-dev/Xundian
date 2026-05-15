@@ -3314,6 +3314,10 @@ document.addEventListener('click', async (e) => {
     await populateGlobalFormatSelectors();
     return;
   }
+  if (e.target && e.target.id === 'btn-fmt-infer') {
+    await openInferFlow();
+    return;
+  }
   // 列表项里的按钮
   const action = e.target && e.target.dataset && e.target.dataset.action;
   if (!action) return;
@@ -3336,6 +3340,105 @@ async function saveNewUserFormat({ name, template, parent_id }) {
     parent_id: parent_id || null,
     created_at: now, updated_at: now,
   });
+}
+
+
+// 样例反推 UI 流程：选参照书 → 粘贴样例 → 审阅反推结果 → 采纳 or 修一下
+async function openInferFlow() {
+  // 列出库里全字段已填的书供选作参照
+  const books = await window.dbHelpers.getBooksForUI();
+  const candidates = books.filter(b =>
+    b.author && b.author !== 'XX'
+    && b.title
+    && b.publisher && b.publisher !== 'XX出版社'
+    && b.year && b.year !== '0000'
+  );
+  if (candidates.length === 0) {
+    alert('需要至少一本元数据齐全的书做参照。请先去书架补一本（author/title/publisher/year 都不能是默认占位）。');
+    return;
+  }
+  const optsHtml = candidates.map(b => `<option value="${escapeHtml(b.file_id)}">${escapeHtml(b.author)}《${escapeHtml(b.title)}》</option>`).join('');
+
+  // 第一步：选参照书 + 粘贴样例
+  const step1 = await showModal({
+    title: '从样例反推格式（1/2）',
+    bodyHtml: `
+      <label>参照书</label>
+      <select id="infer-ref">${optsHtml}</select>
+      <label>粘贴样例（这本书在该格式下应该是什么样子）</label>
+      <textarea id="infer-sample" rows="3" placeholder="例：任继愈主编：《中国哲学发展史（先秦卷）》，北京：人民出版社，1983年，第25页。"></textarea>
+      <label>样例里出现的页码</label>
+      <input id="infer-page" type="number" value="25" />
+      <p class="hint">算法会按字段值长度倒序在样例中查找替换。"主编/译"等责任方式无法自动推为 <code>{?role}</code> 段 — 反推完用"修一下"手动加。</p>
+    `,
+    onOk: async () => {
+      const refId = document.getElementById('infer-ref').value;
+      const sample = (document.getElementById('infer-sample').value || '').trim();
+      const page = parseInt(document.getElementById('infer-page').value, 10) || 25;
+      if (!sample) { alert('请粘贴样例'); return false; }
+      const refBook = candidates.find(b => b.file_id === refId);
+      const inferred = window.xdFormats.inferTemplateFromSample({
+        refMeta: refBook, sample, refPage: page,
+      });
+      return { inferred, refBook, page };
+    },
+  });
+  if (!step1) return;
+
+  // 计算回填验证
+  const backRender = window.xdFormats.renderCitation({
+    template: step1.inferred,
+    meta: step1.refBook,
+    book_page: step1.page,
+  });
+
+  // 第二步：审阅 + 命名 + 选择"采纳"或"修一下"
+  // 由于普通 showModal 没有"extra button"，我们用 radio 选择动作
+  const step2 = await showModal({
+    title: '反推结果（2/2）',
+    bodyHtml: `
+      <label>反推出的模板</label>
+      <div class="tpl-textarea" style="background:#f6f8fa;padding:8px;white-space:pre-wrap;">${escapeHtml(step1.inferred)}</div>
+
+      <label>回填验证（用该参照书渲染上述模板）</label>
+      <div class="tpl-preview">${escapeHtml(backRender)}</div>
+
+      <label>命名（保存为新的"我的"格式）</label>
+      <input id="infer-name" placeholder="例：我的历史研究改" />
+
+      <label style="margin-top:10px;">下一步</label>
+      <label style="font-weight:normal;display:block;margin-top:4px;">
+        <input type="radio" name="infer-action" value="accept" checked />
+        ✓ 采纳并保存（直接保存上方模板）
+      </label>
+      <label style="font-weight:normal;display:block;">
+        <input type="radio" name="infer-action" value="edit" />
+        ✎ 修一下（进编辑器继续修改）
+      </label>
+    `,
+    onOk: async () => {
+      const name = (document.getElementById('infer-name').value || '').trim();
+      const action = document.querySelector('input[name="infer-action"]:checked').value;
+      if (action === 'accept' && !name) {
+        alert('请填名称');
+        return false;
+      }
+      return { action, name, template: step1.inferred };
+    },
+  });
+  if (!step2) return;
+
+  if (step2.action === 'accept') {
+    await saveNewUserFormat({ name: step2.name, template: step2.template });
+  } else if (step2.action === 'edit') {
+    const r = await openTemplateEditor({
+      mode: 'create-blank',
+      initialFormat: { name: step2.name || '', template: step2.template },
+    });
+    if (r) await saveNewUserFormat(r);
+  }
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
 }
 
 

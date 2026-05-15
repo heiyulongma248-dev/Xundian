@@ -3291,6 +3291,104 @@ async function populateGlobalFormatSelectors() {
   }
 }
 
+// 格式管理 tab 的事件代理
+document.addEventListener('click', async (e) => {
+  // 顶部三个按钮
+  if (e.target && e.target.id === 'btn-fmt-new-blank') {
+    const r = await openTemplateEditor({ mode: 'create-blank', initialFormat: { name: '', template: '' } });
+    if (r) await saveNewUserFormat(r);
+    await renderFormatList();
+    await populateGlobalFormatSelectors();
+    return;
+  }
+  // 列表项里的按钮
+  const action = e.target && e.target.dataset && e.target.dataset.action;
+  if (!action) return;
+  const item = e.target.closest('.fmt-item');
+  if (!item) return;
+  const fmtId = item.dataset.fmtId;
+  if (action === 'edit') return handleFormatEdit(fmtId);
+  if (action === 'clone') return handleFormatClone(fmtId);
+  if (action === 'reset') return handleFormatReset(fmtId);
+  if (action === 'delete') return handleFormatDelete(fmtId);
+  if (action === 'export') return handleFormatExport(fmtId);
+});
+
+
+async function saveNewUserFormat({ name, template, parent_id }) {
+  const id = `user_${Math.random().toString(36).slice(2, 10)}`;
+  const now = Date.now();
+  await window.db.putFormat({
+    id, name, category: 'user', template,
+    parent_id: parent_id || null,
+    created_at: now, updated_at: now,
+  });
+}
+
+
+async function handleFormatEdit(fmtId) {
+  const fmt = await window.xdFormats.getFormatById(fmtId);
+  if (!fmt) return;
+  const r = await openTemplateEditor({ mode: 'edit', initialFormat: fmt });
+  if (!r) return;
+  const now = Date.now();
+  // 修改内置格式 → 以 builtin category 写入 IndexedDB（"已修改的内置"）
+  // 修改 user 格式 → 写入 IndexedDB
+  await window.db.putFormat({
+    id: fmt.id,
+    name: r.name,
+    category: fmt.category,
+    template: r.template,
+    parent_id: fmt.parent_id || null,
+    created_at: fmt.created_at || now,
+    updated_at: now,
+  });
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
+  rerenderAllCitations();
+}
+
+
+async function handleFormatClone(fmtId) {
+  const src = await window.xdFormats.getFormatById(fmtId);
+  if (!src) return;
+  const r = await openTemplateEditor({
+    mode: 'clone',
+    initialFormat: { name: `${src.name} 副本`, template: src.template, parent_id: src.id },
+  });
+  if (!r) return;
+  await saveNewUserFormat(r);
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
+}
+
+
+async function handleFormatReset(fmtId) {
+  if (!confirm('重置为内置默认模板？这会丢弃你对此内置格式的修改。')) return;
+  await window.db.deleteFormat(fmtId);
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
+  rerenderAllCitations();
+}
+
+
+async function handleFormatDelete(fmtId) {
+  if (!confirm('删除这个自定义格式？')) return;
+  await window.db.deleteFormat(fmtId);
+  // 如当前 active 就是它，回退默认
+  if (window.xdFormats.getActiveFormatId() === fmtId) {
+    window.xdFormats.setActiveFormatId(window.xdFormats.DEFAULT_FORMAT_ID);
+  }
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
+  rerenderAllCitations();
+}
+
+
+// 占位：任务 4.3 实现
+async function handleFormatExport(fmtId) { alert('导出功能待阶段 4 实现'); }
+
+
 // 占位：被任务 2.6 实现
 function rerenderAllCitations() {
   const formatId = window.xdFormats.getActiveFormatId();

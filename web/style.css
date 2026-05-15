@@ -959,31 +959,6 @@ body.multiselect-active .book-card .actions { display: none; }
   font-weight: 600;
   user-select: none;
 }
-/* × 删除按钮：默认隐藏，悬停整段时淡入 */
-.tpl-token-opt .opt-close {
-  display: inline-block;
-  width: 14px;
-  height: 14px;
-  margin-left: 3px;
-  font-size: 12px;
-  line-height: 12px;
-  text-align: center;
-  color: #047857;
-  background: transparent;
-  border-radius: 50%;
-  cursor: pointer;
-  user-select: none;
-  opacity: 0;
-  transition: opacity 0.12s, background 0.1s;
-}
-.tpl-token-opt:hover .opt-close {
-  opacity: 0.6;
-}
-.tpl-token-opt .opt-close:hover {
-  opacity: 1 !important;
-  background: #fee2e2;
-  color: #b91c1c;
-}
 
 .tpl-section,
 .tpl-preview-section {

@@ -3130,14 +3130,14 @@ async function renderFormatList() {
 async function openTemplateEditor(options) {
   const initial = options.initialFormat || { name: '', template: '', parent_id: null };
   const insertableFields = ['author', 'role', 'country', 'title', 'translator', 'edition', 'doc_type', 'place', 'publisher', 'year', 'page'];
-  // 字段插入按钮 — 普通字段
+  // 字段插入按钮 — 普通字段（必填占位）
   const requiredButtonsHtml = insertableFields.map(f =>
-    `<button class="mock-button tpl-insert-btn" data-insert="{${f}}" type="button">+ {${f}}</button>`
+    `<button class="tpl-insert-btn tpl-insert-btn--req" data-insert="{${f}}" type="button" title="插入必填占位 {${f}}">${f}</button>`
   ).join('');
   // 可选段按钮：常见的可选字段
   const optionalFields = ['role', 'country', 'translator', 'edition'];
   const optionalButtonsHtml = optionalFields.map(f =>
-    `<button class="mock-button tpl-insert-btn" data-insert="{?${f} {}}" type="button">+ {?${f}}</button>`
+    `<button class="tpl-insert-btn tpl-insert-btn--opt" data-insert="{?${f} {}}" type="button" title="插入可选段 {?${f} {}}（空则整段消失）">?${f}</button>`
   ).join('');
 
   const sampleBooks = [
@@ -3163,24 +3163,30 @@ async function openTemplateEditor(options) {
     <input id="tpl-name" value="${escapeHtml(initial.name)}" />
 
     <label>模板</label>
-    <textarea id="tpl-template" rows="4" class="tpl-textarea">${escapeHtml(initial.template)}</textarea>
+    <textarea id="tpl-template" rows="3" class="tpl-textarea" spellcheck="false">${escapeHtml(initial.template)}</textarea>
 
-    <div class="tpl-insert-row">
-      <span class="hint">必填占位（空则显示"〔X待补〕"）：</span>
-      ${requiredButtonsHtml}
-    </div>
-    <div class="tpl-insert-row">
-      <span class="hint">可选段（空则整段消失）：</span>
-      ${optionalButtonsHtml}
+    <div class="tpl-section">
+      <div class="tpl-section-head">
+        <span class="tpl-section-title">点击插入字段</span>
+        <span class="tpl-section-hint">必填占位 — 留空则显示"〔X待补〕"</span>
+      </div>
+      <div class="tpl-chip-row">${requiredButtonsHtml}</div>
+      <div class="tpl-section-head" style="margin-top:8px;">
+        <span class="tpl-section-hint">可选段 — 留空则整段消失</span>
+      </div>
+      <div class="tpl-chip-row">${optionalButtonsHtml}</div>
     </div>
 
-    <label>实时预览（点切换样书 →）
-      <select id="tpl-sample">
-        ${sampleBooks.map((s, i) => `<option value="${i}">${escapeHtml(s.label)}</option>`).join('')}
-      </select>
-    </label>
-    <div id="tpl-preview" class="tpl-preview">（待渲染）</div>
-    <div id="tpl-error" class="tpl-error hidden"></div>
+    <div class="tpl-preview-section">
+      <div class="tpl-section-head">
+        <span class="tpl-section-title">实时预览</span>
+        <select id="tpl-sample" class="tpl-sample-select">
+          ${sampleBooks.map((s, i) => `<option value="${i}">${escapeHtml(s.label)}</option>`).join('')}
+        </select>
+      </div>
+      <div id="tpl-preview" class="tpl-preview">（待渲染）</div>
+      <div id="tpl-error" class="tpl-error hidden"></div>
+    </div>
   `;
 
   const titles = {

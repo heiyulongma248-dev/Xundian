@@ -792,6 +792,78 @@ body.multiselect-active .book-card .actions { display: none; }
 .fmt-item-default { color: #16a34a; font-size: 11px; margin-left: 6px; }
 .fmt-item-modified { color: #f59e0b; font-size: 11px; margin-left: 6px; }
 
+/* 模板编辑器 modal — 顶部说明区 */
+.tpl-intro {
+  background: #f0f6ff;
+  border-left: 3px solid #2563eb;
+  border-radius: 4px;
+  padding: 10px 14px;
+  margin-bottom: 14px;
+  font-size: 12px;
+  line-height: 1.65;
+  color: #1f2937;
+}
+.tpl-intro-title {
+  font-weight: 600;
+  color: #1a3a6b;
+  margin-bottom: 4px;
+}
+.tpl-intro-body code,
+.tpl-intro-example code {
+  font-family: 'JetBrains Mono', Consolas, monospace;
+  background: #fff;
+  padding: 1px 4px;
+  border-radius: 3px;
+  font-size: 11.5px;
+  color: #3730a3;
+  border: 1px solid #d8e3ff;
+}
+.tpl-intro-example {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px;
+  margin-top: 8px;
+  padding: 6px 8px;
+  background: #fff;
+  border: 1px solid #d8e3ff;
+  border-radius: 4px;
+  font-size: 11.5px;
+}
+.tpl-intro-example code {
+  border: 0;
+  padding: 0;
+  background: transparent;
+  flex: 1 1 280px;
+  min-width: 200px;
+}
+.tpl-intro-tag {
+  display: inline-block;
+  font-size: 10px;
+  padding: 1px 6px;
+  border-radius: 8px;
+  background: #dbeafe;
+  color: #1e40af;
+  font-weight: 600;
+  letter-spacing: 0.02em;
+}
+.tpl-intro-tag--out {
+  background: #fef3c7;
+  color: #92400e;
+}
+.tpl-intro-rendered {
+  flex: 1 1 280px;
+  min-width: 200px;
+  font-family: 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
+  color: #422006;
+}
+.tpl-intro-hints {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin-top: 10px;
+}
+
 /* 模板编辑器 modal */
 .tpl-textarea {
   font-family: 'JetBrains Mono', Consolas, "Courier New", monospace;

@@ -3159,20 +3159,43 @@ async function openTemplateEditor(options) {
   ];
 
   const bodyHtml = `
-    <label>名称</label>
-    <input id="tpl-name" value="${escapeHtml(initial.name)}" />
+    <div class="tpl-intro">
+      <div class="tpl-intro-title">📐 这是什么</div>
+      <div class="tpl-intro-body">
+        在下面的"模板"框里写引文长什么样。<strong>把作者、书名等可变部分写成占位符</strong>（如
+        <code>{author}</code>、<code>{title}</code>），运行时会被每本书的元数据替换。
+        除了占位符，其他字符（点号、冒号、《》、年、第…页 等）<strong>原样输出</strong>。
+      </div>
+      <div class="tpl-intro-example">
+        <span class="tpl-intro-tag">模板</span>
+        <code>{author}. {title}[{doc_type}]. {place}: {publisher}, {year}: {page}.</code>
+        <span class="tpl-intro-tag tpl-intro-tag--out">输出</span>
+        <span class="tpl-intro-rendered">任继愈. 中国哲学发展史[M]. 北京: 人民出版社, 1983: 25.</span>
+      </div>
+      <div class="tpl-intro-hints">
+        <button class="btn-tiny" id="tpl-fill-gbt" type="button">↩ 用 GB/T 7714 模板填充</button>
+        <button class="btn-tiny" id="tpl-fill-humanities" type="button">↩ 用历史研究模板填充</button>
+        <button class="btn-tiny" id="tpl-fill-law" type="button">↩ 用法学手册模板填充</button>
+      </div>
+    </div>
 
-    <label>模板</label>
-    <textarea id="tpl-template" rows="3" class="tpl-textarea" spellcheck="false">${escapeHtml(initial.template)}</textarea>
+    <label>名称 <span class="hint-inline">（自己起一个，方便日后选择）</span></label>
+    <input id="tpl-name" value="${escapeHtml(initial.name)}" placeholder="例：我的人文社科改良版" />
+
+    <label>模板 <span class="hint-inline">（用 <code>{字段}</code> 引用占位，其余字符原样保留）</span></label>
+    <textarea id="tpl-template" rows="3" class="tpl-textarea" spellcheck="false" placeholder="例：{author}. {title}[{doc_type}]. {place}: {publisher}, {year}: {page}.">${escapeHtml(initial.template)}</textarea>
 
     <div class="tpl-section">
       <div class="tpl-section-head">
-        <span class="tpl-section-title">点击插入字段</span>
-        <span class="tpl-section-hint">必填占位 — 留空则显示"〔X待补〕"</span>
+        <span class="tpl-section-title">点击插入</span>
+        <span class="tpl-section-hint">把光标放到模板里要插入的位置，再点下方按钮</span>
+      </div>
+      <div class="tpl-section-head" style="margin-top:6px;">
+        <span class="tpl-section-hint"><strong style="color:#3730a3;">必填字段</strong>（如这本书没填该字段，渲染时显示"〔X待补〕"提醒补上）</span>
       </div>
       <div class="tpl-chip-row">${requiredButtonsHtml}</div>
       <div class="tpl-section-head" style="margin-top:8px;">
-        <span class="tpl-section-hint">可选段 — 留空则整段消失</span>
+        <span class="tpl-section-hint"><strong style="color:#047857;">可选段</strong>（如这本书没填该字段，整段连同周围的标点一起消失，<em>不会</em>显示占位）</span>
       </div>
       <div class="tpl-chip-row">${optionalButtonsHtml}</div>
     </div>
@@ -3183,6 +3206,9 @@ async function openTemplateEditor(options) {
         <select id="tpl-sample" class="tpl-sample-select">
           ${sampleBooks.map((s, i) => `<option value="${i}">${escapeHtml(s.label)}</option>`).join('')}
         </select>
+      </div>
+      <div class="tpl-section-head" style="margin-top:2px;">
+        <span class="tpl-section-hint">用左边样书数据渲染你的模板；切换样书可以试不同字段组合（带译者 / 带版次 等）</span>
       </div>
       <div id="tpl-preview" class="tpl-preview">（待渲染）</div>
       <div id="tpl-error" class="tpl-error hidden"></div>
@@ -3236,6 +3262,25 @@ async function openTemplateEditor(options) {
         refresh();
       });
     });
+
+    // "一键填充内置模板"按钮 — 帮新用户冷启动
+    const fillBtns = [
+      ['tpl-fill-gbt', 'gbt7714'],
+      ['tpl-fill-humanities', 'humanities_2024'],
+      ['tpl-fill-law', 'law_2025'],
+    ];
+    for (const [btnId, fmtId] of fillBtns) {
+      const btn = document.getElementById(btnId);
+      if (!btn) continue;
+      btn.addEventListener('click', () => {
+        const tpl = window.xdFormats.getBuiltinTemplate(fmtId);
+        if (tpl) {
+          taEl.value = tpl;
+          taEl.focus();
+          refresh();
+        }
+      });
+    }
     refresh();
   };
 

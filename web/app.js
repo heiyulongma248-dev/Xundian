@@ -3129,20 +3129,39 @@ async function renderFormatList() {
 //   returns Promise that resolves to { name, template, parent_id? } on save, or null on cancel
 async function openTemplateEditor(options) {
   const initial = options.initialFormat || { name: '', template: '', parent_id: null };
-  const insertableFields = ['author', 'role', 'country', 'title', 'translator', 'edition', 'doc_type', 'place', 'publisher', 'year', 'page'];
-  // 字段插入按钮 — 普通字段（必填占位）
-  const requiredButtonsHtml = insertableFields.map(f =>
-    `<button class="tpl-insert-btn tpl-insert-btn--req" data-insert="{${f}}" type="button" title="插入必填占位 {${f}}">${f}</button>`
+  // 字段定义：英文 key、中文标签、tooltip
+  const FIELD_DEFS = [
+    { key: 'author',     label: '作者',     hint: '作者' },
+    { key: 'role',       label: '责任方式', hint: '主编/编/译…（"著"自动省略）' },
+    { key: 'country',    label: '国别',     hint: '如"日""美"' },
+    { key: 'title',      label: '书名',     hint: '书名' },
+    { key: 'translator', label: '译者',     hint: '译者（含多人，"、"分隔）' },
+    { key: 'edition',    label: '版次',     hint: '如"2"渲染为"(第2版)"' },
+    { key: 'doc_type',   label: '文献类型', hint: 'M=专著 / J=期刊 / N=报纸' },
+    { key: 'place',      label: '出版地',   hint: '出版地' },
+    { key: 'publisher',  label: '出版社',   hint: '出版社' },
+    { key: 'year',       label: '出版年',   hint: '出版年（如 2001）' },
+    { key: 'page',       label: '页码',     hint: '引文页（运行时由匹配结果决定）' },
+  ];
+  // draggable=true：HTML5 原生拖拽 → textarea 接收 text/plain 后会插入到鼠标位置
+  const requiredButtonsHtml = FIELD_DEFS.map(({ key, label, hint }) =>
+    `<button class="tpl-insert-btn tpl-insert-btn--req" data-insert="{${key}}" draggable="true" type="button" title="点击或拖入：{${key}} — ${escapeHtml(hint)}">${escapeHtml(label)}</button>`
   ).join('');
-  // 可选段按钮：常见的可选字段
+  // 可选段：可选字段子集（role/country/translator/edition）
   const optionalFields = ['role', 'country', 'translator', 'edition'];
-  const optionalButtonsHtml = optionalFields.map(f =>
-    `<button class="tpl-insert-btn tpl-insert-btn--opt" data-insert="{?${f} {}}" type="button" title="插入可选段 {?${f} {}}（空则整段消失）">?${f}</button>`
-  ).join('');
+  const optionalButtonsHtml = optionalFields.map(key => {
+    const def = FIELD_DEFS.find(d => d.key === key);
+    return `<button class="tpl-insert-btn tpl-insert-btn--opt" data-insert="{?${key} {}}" draggable="true" type="button" title="点击或拖入可选段 {?${key} {}} — 空则整段消失">?${escapeHtml(def.label)}</button>`;
+  }).join('');
 
   const sampleBooks = [
     {
-      label: '完整字段（任继愈主编《中国哲学发展史》）',
+      label: '★ 全字段示例（11 个占位符都有值）',
+      meta: { author: '罗杰·谢泼德', role: '编', country: '美', translator: '张洪明', edition: '修订', title: '心理表征', doc_type: 'M', place: '上海', publisher: '上海人民出版社', year: '2005' },
+      book_page: 102, book_page_end: 105, pdf_page: null,
+    },
+    {
+      label: '中文专著（任继愈主编《中国哲学发展史》）',
       meta: { author: '任继愈', role: '主编', country: '', translator: '', edition: '', title: '中国哲学发展史（先秦卷）', doc_type: 'M', place: '北京', publisher: '人民出版社', year: '1983' },
       book_page: 25, book_page_end: null, pdf_page: null,
     },
@@ -3252,6 +3271,7 @@ async function openTemplateEditor(options) {
     taEl.addEventListener('input', refresh);
     sampleEl.addEventListener('change', refresh);
     document.querySelectorAll('.tpl-insert-btn').forEach(b => {
+      // 点击插入到光标处
       b.addEventListener('click', () => {
         const ins = b.dataset.insert;
         const start = taEl.selectionStart;
@@ -3261,6 +3281,21 @@ async function openTemplateEditor(options) {
         taEl.focus();
         refresh();
       });
+      // 拖拽到 textarea —— 用 HTML5 原生拖拽：dragstart 设 dataTransfer text/plain，
+      // textarea 本身原生支持文本 drop，会按鼠标位置插入到光标点
+      b.addEventListener('dragstart', (e) => {
+        e.dataTransfer.setData('text/plain', b.dataset.insert);
+        e.dataTransfer.effectAllowed = 'copy';
+        b.classList.add('dragging');
+      });
+      b.addEventListener('dragend', () => {
+        b.classList.remove('dragging');
+      });
+    });
+    // textarea 收到 drop 后浏览器把文本自动插入；我们只需 refresh 预览
+    taEl.addEventListener('drop', () => {
+      // drop 处理后 textarea.value 已更新；让 input 事件先跑完再 refresh
+      setTimeout(refresh, 0);
     });
 
     // "一键填充内置模板"按钮 — 帮新用户冷启动

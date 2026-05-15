@@ -918,15 +918,16 @@ body.multiselect-active .book-card .actions { display: none; }
 .tpl-insert-btn {
   display: inline-flex;
   align-items: center;
-  padding: 3px 9px;
-  font-family: 'JetBrains Mono', Consolas, monospace;
-  font-size: 11px;
+  padding: 4px 11px;
+  font-size: 12px;
   line-height: 1.4;
-  border-radius: 11px;
-  cursor: pointer;
+  border-radius: 12px;
+  cursor: grab;
   user-select: none;
-  transition: background 0.12s, border-color 0.12s;
+  transition: background 0.12s, border-color 0.12s, transform 0.08s;
 }
+.tpl-insert-btn:active { cursor: grabbing; }
+.tpl-insert-btn.dragging { opacity: 0.5; transform: scale(0.95); }
 .tpl-insert-btn--req {
   background: #eef2ff;
   color: #3730a3;

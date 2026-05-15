@@ -38,13 +38,13 @@
 | --- | --- | --- |
 | `web/pysrc/citation.py` | 改造为模板引擎；输入"模板字符串 + 元数据"，输出字符串 | 改 |
 | `web/pysrc/formats.py` | 内置 3 种格式的模板字符串常量（id / 名称 / 模板） | 新 |
-| `web/pysrc/parse_meta.py` | 多格式探测 + 字段抽取（智能识别）；从现 app.js 逻辑迁出再扩展 | 新（或移动） |
+| `web/app.js` 中的 `parseBookMetadata` | 暴露已识别的 role/edition；新增 country/translator 检测；详见 §10 | 改（不迁移） |
 | `web/pysrc/web_api.py` | `lookup_quote` / `scan_document` 新增 `format_id` + `template` 参数；新增 `render_citation` 工具入口 | 改 |
 | `web/formats.js` | JS 镜像渲染器（与 Python 版完全等价），用于卡片级 chip 切换、模板编辑器实时预览 | 新 |
 | `web/db.js` | 新增 IndexedDB store `formats` | 改 |
 | `web/app.js` | 全局选择器、卡片 chip、新 tab "📐 引用格式"、模板编辑器、扩展 editBookMeta | 改 |
 | `web/index.html` / `style.css` | 新 tab DOM + 选择器 + chip + 编辑器样式 | 改 |
-| `web/service-worker.js` | SELF_ASSETS 加 `formats.py`、`formats.js`、`parse_meta.py`；CACHE_NAME v4→v5 | 改 |
+| `web/service-worker.js` | SELF_ASSETS 加 `formats.py`、`formats.js`；CACHE_NAME v4→v5 | 改 |
 
 ## 5. 数据模型
 
@@ -255,27 +255,60 @@ UI 流程：
 
 ## 10. 智能识别扩展
 
-`web/pysrc/parse_meta.py`（如不存在则从 `app.js` 逻辑移出再扩展）。
+**前提澄清**：当前 `parseBookMetadata`（`web/app.js` 第 1026 行起）是**格式无关的强信号启发式**解析器，不是 GB/T 专用。它靠出版社后缀字典、已知出版社→城市映射、年份评分、城市/省名表、PRIMARY/SECONDARY 关键字、`《》` 强锚点等综合判断。任何"图1 / 图2"风格的粘贴文本现行版已经能识别大部分字段。
 
-### 10.1 探测优先级
+本次扩展的本质是**把已经识别但被丢弃的信息暴露出来 + 补两处新检测**，不改格式判别策略。
 
-1. 含 `[M]` / `[J]` / `[N]` 或英文 `. ` `: ` 分隔 → GB/T 7714
-2. 含 `《》` + `出版社……年版`（无出版地紧跟出版社） → 法学引注手册
-3. 含 `《》` + `出版地：出版社` + `第…页` → 历史研究
-4. 都不像 → 退化按 GB/T 走
+### 10.1 现有检测 → 暴露新字段（无算法增改）
 
-### 10.2 字段抽取（共用）
+| 现状 | 改动 |
+| --- | --- |
+| 步骤 6a/6b 已识别 `strippedSecondaries`（含 `{name, role}`），但 SECONDARY_ROLES 仅含 `整理\|编辑\|编校\|校点\|校注\|注释\|校译\|审定\|审校\|标点\|点校\|选注`，丢弃 | 不改 SECONDARY_ROLES；继续丢弃这些"次要"贡献者（它们不映射到本 spec 的 4 个新字段） |
+| 步骤 7 已识别 `strippedEditions`（"第2版""修订版"等），丢弃 | 提取数字 → `edition`（"第 2 版" → `"2"`；"修订版" → `"修订"`） |
+| 步骤 9/10 已识别主作者后的 marker（著/编/编著/编译/主编/选编/撰/译/主译），但用完即丢 | 在识别 author 的同时记录 marker → `role`；"著"按本 spec 处理为空 |
+
+### 10.2 新增检测（增量）
 
 ```
-《(?P<title>[^》]+)》              → title
-(?P<author>.+?)(?P<role>主编|编|译|整理)?[:：]《   → author + role
-(?P<translator>[^，]+)译            → translator
-\[(?P<country>[^\]]+)\]             → country
-第(?P<edition>[0-9一二三四五六七八九十]+)版  → edition
-+ 现有的 publisher / year / place / page 抽取逻辑
+\[\s*([^\]\s]{1,8})\s*\]   出现在 author 位置之前 → country
+                            （护栏：不在《》内、不与已识别的 [M]/[J] 类型标签冲突）
+
+(?<![一-鿿])([^.。;；\n,，、:：\s\[\]【】《》]{2,30})\s*(?:、[^,，.。;；\n:：\s\[\]【】《》]+)*\s*译
+                            → translator
+                            匹配条件：紧贴该匹配的"译"字必须 *不是* 现行
+                            PRIMARY 识别采纳的 author 位置（避免重复占用）
 ```
 
-抽到的字段全部填进编辑表单（含新增 4 字段），用户人眼审核。
+实现要点：
+- **避免与 author 冲突**：先跑现行 PRIMARY 识别拿到 `author`。若 PRIMARY 命中点是 `译`，且只有一个 PRIMARY 命中 → 视作非译著场景（这本就是译作者，author = 这个名字，translator 留空）。若有 ≥2 个 PRIMARY 命中 → 用 SECONDARY 兜底规则定 author，把所有"X译"段的 X 归 `translator`。
+- **`role` 暴露**：将主作者 marker 的字符串直接写入 `role`，但 marker 是 `"著"` / `"撰"` 时归一化为空串
+- **`country` 排除已知标签**：[M]/[J]/[N]/[D]/[P]/[C]/[R]/[S] 单字符方括号已被步骤 2 消费，不会再被国别正则吃到
+
+### 10.3 输出结构变更
+
+```js
+out = {
+  title, author, publisher, year, place, doc_type,
+  // 新增（保持向后兼容：未识别时为空串）
+  role: '',
+  translator: '',
+  edition: '',
+  country: '',
+  _meta: { ... 现有调试元 ... }
+}
+```
+
+识别后由调用方填入对应 input（新增 4 字段必须有对应 DOM input — 见 §8.5）。
+
+### 10.4 实现位置抉择
+
+两选：
+- **(a) 留在 `web/app.js`**：现状是 JS，约 500 行；继续在 JS 维护。优点：零迁移成本，前端独立可测。
+- **(b) 迁到 `web/pysrc/parse_meta.py`**：与 Python 端 `citation.py` 同语言便于共享单测。缺点：迁移本身工作量大、Pyodide 调用有 ~10ms 启动延迟。
+
+**决策：选 (a) 留在 JS。** 智能识别只在编辑书目时点按钮触发，不参与扫描热路径；维持现状代码更划算。`web/pysrc/parse_meta.py` 不需要新建。
+
+§4 模块表中 `parse_meta.py` 一项作废 — 修正见下方变更说明。
 
 ## 11. API 接口
 
@@ -326,13 +359,17 @@ scan_document(text, ...,
 
 为减小一次性变更风险，建议按以下阶段提交：
 
-1. **元数据扩展 + 内置 3 个格式**：扩展 Library schema、写 `formats.py`、改造 `citation.py` 为模板引擎、加 JS 镜像 `formats.js`；不动 UI（先把渲染管道做对，单测覆盖三种格式 × 完整/缺字段样书）
+1. **元数据扩展 + 内置 3 个格式 + 智能识别同步扩展**
+   - 扩展 Library schema（4 个新字段）
+   - 改造 `parseBookMetadata`（暴露 role/edition + 新增 country/translator 检测，§10）
+   - 在编辑书目弹窗加 4 个新输入框（§8.5），与智能识别按钮联动
+   - 写 `formats.py` + 改造 `citation.py` 为模板引擎，加 JS 镜像 `formats.js`
+   - 不动 UI 主流程（先把数据 + 渲染管道做对，单测覆盖三种格式 × 完整/缺字段样书）
 2. **全局选择器 + 卡片 chip**：UI 接入；用户可以切格式看效果，但还不能造新格式
 3. **格式管理 tab + 模板编辑器**：CRUD + IndexedDB 接入；克隆 + 空白新建
 4. **样例反推 + 导入导出**：完成"造格式"剩下两条路径
-5. **智能识别扩展**：`parse_meta.py` 多格式探测
 
-每阶段都是可独立部署的增量。
+每阶段都是可独立部署的增量。智能识别扩展归并到阶段 1 —— 因为它依赖新字段且工作量小（多数检测已在 `parseBookMetadata` 内完成）。
 
 ## 14. 待定 / 后续可选
 

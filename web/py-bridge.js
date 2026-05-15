@@ -42,6 +42,7 @@ const PY_FILES = [
   'pdf_text.py',
   'matcher.py',
   'citation.py',
+  'formats.py',
   'render_report.py',
   'web_api.py',
 ];

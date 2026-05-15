@@ -62,3 +62,4 @@ cache/
 
 # —— 日志 ——
 *.log
+.superpowers/

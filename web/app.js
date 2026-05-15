@@ -573,7 +573,8 @@ const API_DISPATCH = {
 
   // —— 导出 ——
   async export_report(suggestedName) {
-    const bytes = await window.py.call('export_report_bytes');
+    const formatId = window.xdFormats.getActiveFormatId();
+    const bytes = await window.py.call('export_report_bytes', formatId, null);
     if (!bytes) throw new Error('导出失败：Python 没返回字节流');
     const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     const r = await window.fs.downloadBytes(arr, suggestedName || '引文核对表.docx');

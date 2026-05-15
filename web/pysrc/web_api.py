@@ -494,14 +494,45 @@ class Api:
 
     # —— 导出核对表 ——
 
-    def export_report_bytes(self):
+    def export_report_bytes(
+        self,
+        format_id: Optional[str] = None,
+        template: Optional[str] = None,
+    ):
         if self._last_scan is None:
             raise RuntimeError("还没扫描过任何文档；请先在「文档扫描」中扫描一次。")
         s = self._last_scan
+        resolved_template = _resolve_template(format_id, template)
+        # 用当前全局格式重新渲染 citations（而不是用扫描时缓存的 s["citations"]）
+        new_citations: List[str] = []
+        for q, mr in zip(s["quotes"], s["matches"]):
+            if mr.best is None:
+                new_citations.append("待人工确认")
+                continue
+            meta = s["meta_dict"].get(mr.best.book_file, {}) or {}
+            meta_full = {
+                "author": meta.get("author", "XX"),
+                "role": meta.get("role", ""),
+                "country": meta.get("country", ""),
+                "translator": meta.get("translator", ""),
+                "edition": meta.get("edition", ""),
+                "title": meta.get("title", mr.best.book_file),
+                "doc_type": meta.get("doc_type", "M"),
+                "place": meta.get("place", "XX"),
+                "publisher": meta.get("publisher", "XX出版社"),
+                "year": meta.get("year", "0000"),
+            }
+            new_citations.append(_render_citation(
+                template=resolved_template,
+                meta=meta_full,
+                book_page=mr.best.book_page,
+                book_page_end=mr.best.book_page_end,
+                pdf_page=mr.best.pdf_page,
+            ))
         data = render_report_bytes(
             quotes=s["quotes"],
             matches=s["matches"],
-            citations=s["citations"],
+            citations=new_citations,
             book_meta=s["meta_dict"],
             threshold=s["threshold"],
             books_pages=s["books_pages"],

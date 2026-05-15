@@ -238,6 +238,47 @@ function isModifiedBuiltin(fmt) {
 }
 
 
+// —— 样例反推 ——
+
+function inferTemplateFromSample({ refMeta, sample, refPage }) {
+  // 从参照书的非空字段值出发，按长度倒序在 sample 中查找，命中则替换为 {field}。
+  // 剩余文本全为字面。
+  const fields = ['author', 'title', 'publisher', 'place', 'year', 'doc_type', 'role', 'translator', 'edition', 'country'];
+  const pairs = [];
+  for (const f of fields) {
+    const v = (refMeta[f] || '').trim();
+    if (v) pairs.push({ field: f, value: v });
+  }
+  if (refPage != null) pairs.push({ field: 'page', value: String(refPage) });
+
+  // 长值优先
+  pairs.sort((a, b) => b.value.length - a.value.length);
+
+  // doc_type 是单字符，{doc_type} 占位通常前后有 [] 包围；不做特殊处理，让裸 M 也被替换
+  // 但要避免 publisher 里有 "M" 被吃掉 → 用单词边界：在 doc_type 这种短串前后必须不是中英文字符。
+  let working = sample;
+  // 用占位标记中间状态，避免后一个替换打到前一个的产物里
+  // step1: 标记到 \x00{field}\x00；最后再去掉 \x00
+  const _escape = (s) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+
+  for (const { field, value } of pairs) {
+    if (!value) continue;
+    const placeholder = `\x00{${field}}\x00`;
+    if (field === 'doc_type' && value.length === 1) {
+      // 用 [X] 模式精确替换
+      const re = new RegExp(`\\[${_escape(value)}\\]`);
+      working = working.replace(re, `[${placeholder}]`);
+    } else {
+      const idx = working.indexOf(value);
+      if (idx >= 0) working = working.slice(0, idx) + placeholder + working.slice(idx + value.length);
+    }
+  }
+
+  // 去掉占位标记
+  return working.replace(/\x00/g, '');
+}
+
+
 // 暴露给浏览器和测试（globalThis.window 在 Node 测试里被预先 stub）
 window.xdFormats = {
   renderCitation,
@@ -254,4 +295,6 @@ window.xdFormats = {
   getFormatById,
   resolveTemplateForId,
   isModifiedBuiltin,
+  // 新增 (Task 4.1):
+  inferTemplateFromSample,
 };

@@ -3143,15 +3143,23 @@ async function openTemplateEditor(options) {
     { key: 'year',       label: '出版年',   hint: '出版年（如 2001）' },
     { key: 'page',       label: '页码',     hint: '引文页（运行时由匹配结果决定）' },
   ];
-  // draggable=true：HTML5 原生拖拽 → textarea 接收 text/plain 后会插入到鼠标位置
+  // 可选段插入默认值：常见组合
+  const OPT_DEFAULTS = {
+    role:       ['', ''],
+    country:    ['[', ']'],
+    translator: ['', '译，'],
+    edition:    ['（第', '版）'],
+  };
+  // 按钮：必填字段（直接渲染为 {field}）
   const requiredButtonsHtml = FIELD_DEFS.map(({ key, label, hint }) =>
-    `<button class="tpl-insert-btn tpl-insert-btn--req" data-insert="{${key}}" draggable="true" type="button" title="点击或拖入：{${key}} — ${escapeHtml(hint)}">${escapeHtml(label)}</button>`
+    `<button class="tpl-insert-btn tpl-insert-btn--req" data-kind="req" data-field="${key}" draggable="true" type="button" title="点击或拖入：{${key}} — ${escapeHtml(hint)}">${escapeHtml(label)}</button>`
   ).join('');
-  // 可选段：可选字段子集（role/country/translator/edition）
+  // 按钮：可选段（带默认 prefix/suffix）
   const optionalFields = ['role', 'country', 'translator', 'edition'];
   const optionalButtonsHtml = optionalFields.map(key => {
     const def = FIELD_DEFS.find(d => d.key === key);
-    return `<button class="tpl-insert-btn tpl-insert-btn--opt" data-insert="{?${key} {}}" draggable="true" type="button" title="点击或拖入可选段 {?${key} {}} — 空则整段消失">?${escapeHtml(def.label)}</button>`;
+    const [pre, suf] = OPT_DEFAULTS[key] || ['', ''];
+    return `<button class="tpl-insert-btn tpl-insert-btn--opt" data-kind="opt" data-field="${key}" data-prefix="${escapeHtml(pre)}" data-suffix="${escapeHtml(suf)}" draggable="true" type="button" title="点击或拖入可选段 {?${key} ${pre}{}${suf}} — 空则整段消失">?${escapeHtml(def.label)}</button>`;
   }).join('');
 
   const sampleBooks = [
@@ -3201,8 +3209,8 @@ async function openTemplateEditor(options) {
     <label>名称 <span class="hint-inline">（自己起一个，方便日后选择）</span></label>
     <input id="tpl-name" value="${escapeHtml(initial.name)}" placeholder="例：我的人文社科改良版" />
 
-    <label>模板 <span class="hint-inline">（用 <code>{字段}</code> 引用占位，其余字符原样保留）</span></label>
-    <textarea id="tpl-template" rows="3" class="tpl-textarea" spellcheck="false" placeholder="例：{author}. {title}[{doc_type}]. {place}: {publisher}, {year}: {page}.">${escapeHtml(initial.template)}</textarea>
+    <label>模板 <span class="hint-inline">（点击或拖入下方"字段"按钮添加占位；普通文字直接键盘输入；删除占位按一次 Backspace 即可）</span></label>
+    <div id="tpl-template" class="tpl-editor" contenteditable="true" spellcheck="false" data-placeholder="点下方"作者""书名"等按钮开始，或者拖到这里"></div>
 
     <div class="tpl-section">
       <div class="tpl-section-head">
@@ -3240,6 +3248,161 @@ async function openTemplateEditor(options) {
     'create-blank': '新建格式',
   };
 
+  // —— DOM ↔ 模板字符串相互转换 ——
+
+  // 取字段中文标签
+  function fieldLabel(key) {
+    const d = FIELD_DEFS.find(x => x.key === key);
+    return d ? d.label : key;
+  }
+
+  // 造一个"必填"chip 节点（蓝紫色）
+  function makeReqChip(field) {
+    const span = document.createElement('span');
+    span.className = 'tpl-token tpl-token-req';
+    span.contentEditable = 'false';
+    span.dataset.kind = 'req';
+    span.dataset.field = field;
+    span.title = `{${field}}`;
+    span.textContent = fieldLabel(field);
+    return span;
+  }
+
+  // 造一个"可选段"chip 节点（绿色），visually 显示 prefix + ?标签 + suffix
+  function makeOptChip(field, prefix, suffix) {
+    const span = document.createElement('span');
+    span.className = 'tpl-token tpl-token-opt';
+    span.contentEditable = 'false';
+    span.dataset.kind = 'opt';
+    span.dataset.field = field;
+    span.dataset.prefix = prefix || '';
+    span.dataset.suffix = suffix || '';
+    span.title = `{?${field} ${prefix}{}${suffix}} — 空则整段消失`;
+    if (prefix) {
+      const pre = document.createElement('span');
+      pre.className = 'opt-lit';
+      pre.textContent = prefix;
+      span.appendChild(pre);
+    }
+    const main = document.createElement('span');
+    main.className = 'opt-main';
+    main.textContent = '?' + fieldLabel(field);
+    span.appendChild(main);
+    if (suffix) {
+      const suf = document.createElement('span');
+      suf.className = 'opt-lit';
+      suf.textContent = suffix;
+      span.appendChild(suf);
+    }
+    return span;
+  }
+
+  // 把模板字符串渲染到 contenteditable 容器
+  function templateToDom(template, container) {
+    container.textContent = '';
+    if (!template) return;
+    let tokens;
+    try {
+      tokens = window.xdFormats.parseTemplate(template);
+    } catch (_) {
+      // 解析失败 → 全当字面，让用户看到自己写的什么
+      container.appendChild(document.createTextNode(template));
+      return;
+    }
+    for (const tok of tokens) {
+      if (tok.kind === 'lit') {
+        container.appendChild(document.createTextNode(tok.text));
+      } else if (tok.kind === 'req') {
+        container.appendChild(makeReqChip(tok.field));
+      } else {
+        container.appendChild(makeOptChip(tok.field, tok.prefix, tok.suffix));
+      }
+    }
+  }
+
+  // 把 contenteditable 容器序列化回模板字符串
+  function domToTemplate(rootEl) {
+    const parts = [];
+    function walk(node) {
+      for (const child of node.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          parts.push(child.textContent);
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          if (child.classList && child.classList.contains('tpl-token')) {
+            if (child.dataset.kind === 'req') {
+              parts.push(`{${child.dataset.field}}`);
+            } else {
+              parts.push(`{?${child.dataset.field} ${child.dataset.prefix || ''}{}${child.dataset.suffix || ''}}`);
+            }
+          } else if (child.tagName === 'BR') {
+            parts.push('\n');
+          } else if (child.tagName === 'DIV' || child.tagName === 'P') {
+            // contenteditable 在按 Enter 时可能注入 <div> 包裹的行
+            if (parts.length && !parts[parts.length - 1].endsWith('\n')) parts.push('\n');
+            walk(child);
+          } else {
+            walk(child);
+          }
+        }
+      }
+    }
+    walk(rootEl);
+    return parts.join('');
+  }
+
+  // 在当前光标位置插入节点（contenteditable 内）
+  function insertNodeAtCaret(rootEl, node) {
+    const sel = window.getSelection();
+    if (sel.rangeCount && rootEl.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(node);
+      // 光标移到节点之后；插入一个零宽间隔避免光标卡在 chip 内部
+      const after = document.createRange();
+      after.setStartAfter(node);
+      after.setEndAfter(node);
+      sel.removeAllRanges();
+      sel.addRange(after);
+    } else {
+      rootEl.appendChild(node);
+      const range = document.createRange();
+      range.selectNodeContents(rootEl);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    rootEl.focus();
+  }
+
+  // 在指定屏幕坐标处插入节点（drop 时用）
+  function insertNodeAtPoint(rootEl, node, clientX, clientY) {
+    let range = null;
+    try {
+      if (document.caretRangeFromPoint) {
+        range = document.caretRangeFromPoint(clientX, clientY);
+      } else if (document.caretPositionFromPoint) {
+        const cp = document.caretPositionFromPoint(clientX, clientY);
+        if (cp) {
+          range = document.createRange();
+          range.setStart(cp.offsetNode, cp.offset);
+          range.collapse(true);
+        }
+      }
+    } catch (_) {}
+    if (range && rootEl.contains(range.startContainer)) {
+      range.insertNode(node);
+      const after = document.createRange();
+      after.setStartAfter(node);
+      after.setEndAfter(node);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(after);
+    } else {
+      rootEl.appendChild(node);
+    }
+    rootEl.focus();
+  }
+
   // 用 setTimeout 在 modal 打开后绑定动态事件（实时预览 / 插入按钮）
   const setupListeners = () => {
     const taEl = document.getElementById('tpl-template');
@@ -3248,8 +3411,21 @@ async function openTemplateEditor(options) {
     const errorEl = document.getElementById('tpl-error');
     if (!taEl) return;  // modal hasn't rendered yet — bail and let next setupListeners try
 
+    // 初始填入模板
+    templateToDom(initial.template, taEl);
+    updatePlaceholder();
+
+    function updatePlaceholder() {
+      if (taEl.textContent.trim() === '' && !taEl.querySelector('.tpl-token')) {
+        taEl.classList.add('is-empty');
+      } else {
+        taEl.classList.remove('is-empty');
+      }
+    }
+
     function refresh() {
-      const tpl = taEl.value;
+      updatePlaceholder();
+      const tpl = domToTemplate(taEl);
       const sampleIdx = parseInt(sampleEl.value, 10) || 0;
       const sb = sampleBooks[sampleIdx];
       try {
@@ -3270,21 +3446,41 @@ async function openTemplateEditor(options) {
 
     taEl.addEventListener('input', refresh);
     sampleEl.addEventListener('change', refresh);
+
+    // 阻止 contenteditable 默认的富文本粘贴（只保留纯文本）
+    taEl.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, text);
+    });
+
+    // 按钮：点击 → 插入到光标处；拖拽 → 携带 kind/field/prefix/suffix；drop 时插入到鼠标位置
     document.querySelectorAll('.tpl-insert-btn').forEach(b => {
-      // 点击插入到光标处
+      function buildChip() {
+        if (b.dataset.kind === 'req') {
+          return makeReqChip(b.dataset.field);
+        }
+        return makeOptChip(b.dataset.field, b.dataset.prefix || '', b.dataset.suffix || '');
+      }
+      // 点击插入
       b.addEventListener('click', () => {
-        const ins = b.dataset.insert;
-        const start = taEl.selectionStart;
-        const end = taEl.selectionEnd;
-        taEl.value = taEl.value.slice(0, start) + ins + taEl.value.slice(end);
-        taEl.selectionStart = taEl.selectionEnd = start + ins.length;
-        taEl.focus();
+        insertNodeAtCaret(taEl, buildChip());
         refresh();
       });
-      // 拖拽到 textarea —— 用 HTML5 原生拖拽：dragstart 设 dataTransfer text/plain，
-      // textarea 本身原生支持文本 drop，会按鼠标位置插入到光标点
+      // 拖拽：dataTransfer 用自定义 mime 携带元数据
       b.addEventListener('dragstart', (e) => {
-        e.dataTransfer.setData('text/plain', b.dataset.insert);
+        const meta = JSON.stringify({
+          kind: b.dataset.kind,
+          field: b.dataset.field,
+          prefix: b.dataset.prefix || '',
+          suffix: b.dataset.suffix || '',
+        });
+        e.dataTransfer.setData('application/x-xundian-chip', meta);
+        // text/plain 兜底，万一掉到其它能接收文本的地方
+        const fallback = b.dataset.kind === 'req'
+          ? `{${b.dataset.field}}`
+          : `{?${b.dataset.field} ${b.dataset.prefix || ''}{}${b.dataset.suffix || ''}}`;
+        e.dataTransfer.setData('text/plain', fallback);
         e.dataTransfer.effectAllowed = 'copy';
         b.classList.add('dragging');
       });
@@ -3292,10 +3488,39 @@ async function openTemplateEditor(options) {
         b.classList.remove('dragging');
       });
     });
-    // textarea 收到 drop 后浏览器把文本自动插入；我们只需 refresh 预览
-    taEl.addEventListener('drop', () => {
-      // drop 处理后 textarea.value 已更新；让 input 事件先跑完再 refresh
-      setTimeout(refresh, 0);
+
+    // contenteditable 接受 drop
+    taEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      taEl.classList.add('drop-target');
+    });
+    taEl.addEventListener('dragleave', () => {
+      taEl.classList.remove('drop-target');
+    });
+    taEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      taEl.classList.remove('drop-target');
+      const metaStr = e.dataTransfer.getData('application/x-xundian-chip');
+      if (metaStr) {
+        try {
+          const meta = JSON.parse(metaStr);
+          const node = meta.kind === 'req'
+            ? makeReqChip(meta.field)
+            : makeOptChip(meta.field, meta.prefix, meta.suffix);
+          insertNodeAtPoint(taEl, node, e.clientX, e.clientY);
+        } catch (err) {
+          console.error(err);
+        }
+      } else {
+        // 兜底：纯文本 drop
+        const text = e.dataTransfer.getData('text/plain') || '';
+        if (text) {
+          const textNode = document.createTextNode(text);
+          insertNodeAtPoint(taEl, textNode, e.clientX, e.clientY);
+        }
+      }
+      refresh();
     });
 
     // "一键填充内置模板"按钮 — 帮新用户冷启动
@@ -3310,7 +3535,7 @@ async function openTemplateEditor(options) {
       btn.addEventListener('click', () => {
         const tpl = window.xdFormats.getBuiltinTemplate(fmtId);
         if (tpl) {
-          taEl.value = tpl;
+          templateToDom(tpl, taEl);
           taEl.focus();
           refresh();
         }
@@ -3327,7 +3552,8 @@ async function openTemplateEditor(options) {
     bodyHtml,
     onOk: async () => {
       const name = (document.getElementById('tpl-name').value || '').trim();
-      const template = document.getElementById('tpl-template').value;
+      const editorEl = document.getElementById('tpl-template');
+      const template = domToTemplate(editorEl);
       if (!name) { alert('请填名称'); return false; }
       try {
         window.xdFormats.parseTemplate(template);

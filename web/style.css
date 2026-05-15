@@ -865,26 +865,77 @@ body.multiselect-active .book-card .actions { display: none; }
 }
 
 /* 模板编辑器 modal */
-.tpl-textarea {
-  font-family: 'JetBrains Mono', Consolas, "Courier New", monospace;
-  font-size: 13px;
-  line-height: 1.6;
+/* 富编辑器（contenteditable，里面混排 chip 和字面文字） */
+.tpl-editor {
+  font-family: 'Source Han Serif SC', 'Songti SC', 'SimSun', serif;
+  font-size: 15px;
+  line-height: 2.0;
   width: 100%;
-  padding: 8px 10px;
+  min-height: 64px;
+  padding: 10px 12px;
   border: 1px solid #d0d7de;
   border-radius: 4px;
   background: #fafbfc;
-  resize: vertical;
+  cursor: text;
+  outline: 0;
+  word-break: break-all;
+  white-space: pre-wrap;
 }
-.tpl-textarea:focus {
+.tpl-editor:focus {
   border-color: #2563eb;
   background: #fff;
-  outline: 0;
   box-shadow: 0 0 0 2px rgba(37, 99, 235, 0.15);
 }
-.tpl-textarea.error {
+.tpl-editor.drop-target {
+  border-color: #2563eb;
+  border-style: dashed;
+  background: #f0f6ff;
+}
+.tpl-editor.error {
   border-color: #dc2626;
   background: #fef2f2;
+}
+.tpl-editor.is-empty::before {
+  content: attr(data-placeholder);
+  color: #b0b6be;
+  font-family: -apple-system, "Segoe UI", sans-serif;
+  font-size: 13px;
+  pointer-events: none;
+}
+
+/* 内联 chip（模板字符串里 {field} 渲染出来的样子） */
+.tpl-token {
+  display: inline-flex;
+  align-items: baseline;
+  padding: 1px 8px;
+  margin: 0 1px;
+  font-family: -apple-system, "Segoe UI", "Microsoft YaHei", sans-serif;
+  font-size: 13px;
+  line-height: 1.4;
+  border-radius: 10px;
+  user-select: none;
+  cursor: grab;
+  vertical-align: baseline;
+  white-space: nowrap;
+}
+.tpl-token-req {
+  background: #eef2ff;
+  color: #3730a3;
+  border: 1px solid #c7d2fe;
+}
+.tpl-token-opt {
+  background: #ecfdf5;
+  color: #047857;
+  border: 1px solid #a7f3d0;
+  gap: 1px;
+}
+.tpl-token-opt .opt-lit {
+  color: #6b7280;
+  font-family: 'Source Han Serif SC', 'Songti SC', serif;
+  font-weight: normal;
+}
+.tpl-token-opt .opt-main {
+  font-weight: 600;
 }
 
 .tpl-section,

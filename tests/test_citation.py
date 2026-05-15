@@ -35,5 +35,36 @@ class CitationRendererTest(unittest.TestCase):
             self.fail("有用例失败：" + "".join(failures))
 
 
+from pysrc.formats import BUILTIN_FORMATS, get_builtin_template  # noqa: E402
+
+
+class BuiltinFormatsTest(unittest.TestCase):
+    def test_three_builtins_present(self):
+        ids = {f["id"] for f in BUILTIN_FORMATS}
+        self.assertEqual(ids, {"gbt7714", "humanities_2024", "law_2025"})
+
+    def test_get_builtin_template_returns_string(self):
+        t = get_builtin_template("gbt7714")
+        self.assertIsInstance(t, str)
+        self.assertIn("{author}", t)
+
+    def test_get_builtin_template_unknown_returns_none(self):
+        self.assertIsNone(get_builtin_template("nonexistent_id"))
+
+    def test_builtin_humanities_renders_correctly(self):
+        template = get_builtin_template("humanities_2024")
+        out = render_citation(
+            template=template,
+            meta={"author": "任继愈", "role": "主编", "country": "", "translator": "",
+                  "title": "中国哲学发展史（先秦卷）", "place": "北京",
+                  "publisher": "人民出版社", "year": "1983"},
+            book_page=25,
+        )
+        self.assertEqual(
+            out,
+            "任继愈主编：《中国哲学发展史（先秦卷）》，北京：人民出版社，1983年，第25页。"
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

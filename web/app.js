@@ -2077,9 +2077,14 @@ document.addEventListener('click', (e) => {
   const parsed = parseBookMetadata(text);
 
   // 把识别结果填到对应 input；总是覆盖（用户已确认想用智能识别）
+  // 10 个字段：6 个原字段 + 4 个新字段（role/country/translator/edition）
   const fieldMap = [
     ['m-author', 'author'],
+    ['m-role', 'role'],
+    ['m-country', 'country'],
     ['m-title', 'title'],
+    ['m-translator', 'translator'],
+    ['m-edition', 'edition'],
     ['m-doctype', 'doc_type'],
     ['m-place', 'place'],
     ['m-pub', 'publisher'],
@@ -2116,7 +2121,7 @@ document.addEventListener('click', (e) => {
     );
   } else if (statusEl) {
     const lines = [];
-    lines.push(`<div class="smart-parse-status-line ok">已识别 ${recognizedCount}/6 个字段</div>`);
+    lines.push(`<div class="smart-parse-status-line ok">已识别 ${recognizedCount}/${fieldMap.length} 个字段</div>`);
 
     // 已忽略的次要贡献者
     const sec = parsed._meta && parsed._meta.strippedSecondaries || [];

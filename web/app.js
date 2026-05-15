@@ -2934,6 +2934,42 @@ function _updateBootPhase(phase, detail) {
   if (fill) fill.style.width = `${pct}%`;
 }
 
+// =========================================================
+// 全局格式选择器
+// =========================================================
+
+function populateGlobalFormatSelectors() {
+  const builtins = window.xdFormats.BUILTIN_FORMATS;
+  // 阶段 2 不支持用户格式，先只列内置
+  const optsHtml = builtins.map(f =>
+    `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`
+  ).join('');
+
+  for (const selId of ['lookup-format-select', 'scan-format-select']) {
+    const sel = document.getElementById(selId);
+    if (!sel) continue;
+    sel.innerHTML = optsHtml;
+    sel.value = window.xdFormats.getActiveFormatId();
+    sel.addEventListener('change', (e) => {
+      window.xdFormats.setActiveFormatId(e.target.value);
+      // 同步另一个选择器
+      for (const otherId of ['lookup-format-select', 'scan-format-select']) {
+        if (otherId !== selId) {
+          const other = document.getElementById(otherId);
+          if (other) other.value = e.target.value;
+        }
+      }
+      // 重渲染当前页面所有已显示的卡片
+      rerenderAllCitations();
+    });
+  }
+}
+
+// 占位：被任务 2.6 实现
+function rerenderAllCitations() {
+  // 阶段 2 后面会实现
+}
+
 async function bootstrap() {
   // 1. 浏览器能力检查
   if (!window.fs.isSupported()) {
@@ -2970,6 +3006,9 @@ async function bootstrap() {
   // 4. 关掉启动遮罩
   $('#boot-overlay').classList.add('hidden');
   setStatus('就绪');
+
+  // 填充全局格式选择器
+  populateGlobalFormatSelectors();
 
   // 5. 数据目录展示（在欢迎卡里）
   try {

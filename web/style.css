@@ -808,34 +808,30 @@ body.multiselect-active .book-card .actions { display: none; }
   color: #1a3a6b;
   margin-bottom: 4px;
 }
-.tpl-intro-body code,
-.tpl-intro-example code {
-  font-family: 'JetBrains Mono', Consolas, monospace;
-  background: #fff;
-  padding: 1px 4px;
-  border-radius: 3px;
-  font-size: 11.5px;
-  color: #3730a3;
-  border: 1px solid #d8e3ff;
-}
 .tpl-intro-example {
   display: flex;
   flex-wrap: wrap;
-  align-items: center;
-  gap: 6px;
+  align-items: baseline;
+  gap: 6px 10px;
   margin-top: 8px;
-  padding: 6px 8px;
+  padding: 8px 10px;
   background: #fff;
   border: 1px solid #d8e3ff;
   border-radius: 4px;
-  font-size: 11.5px;
+  font-size: 13px;
 }
-.tpl-intro-example code {
-  border: 0;
-  padding: 0;
-  background: transparent;
+.tpl-intro-tpl {
   flex: 1 1 280px;
   min-width: 200px;
+  font-family: 'Source Han Serif SC', 'Songti SC', serif;
+  color: #422006;
+  line-height: 2.0;
+}
+/* 引导区里的"演示 chip"：不可拖、稍小一点，仅作示意 */
+.tpl-token--demo {
+  cursor: default;
+  font-size: 11.5px;
+  padding: 0px 6px;
 }
 .tpl-intro-tag {
   display: inline-block;

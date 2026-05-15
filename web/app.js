@@ -3189,13 +3189,22 @@ async function openTemplateEditor(options) {
     <div class="tpl-intro">
       <div class="tpl-intro-title">📐 这是什么</div>
       <div class="tpl-intro-body">
-        在下面的"模板"框里写引文长什么样。<strong>把作者、书名等可变部分写成占位符</strong>（如
-        <code>{author}</code>、<code>{title}</code>），运行时会被每本书的元数据替换。
-        除了占位符，其他字符（点号、冒号、《》、年、第…页 等）<strong>原样输出</strong>。
+        在下面的"模板"框里写引文长什么样。<strong>把作者、书名等可变部分写成
+        <span class="tpl-token tpl-token-req tpl-token--demo">作者</span>
+        <span class="tpl-token tpl-token-req tpl-token--demo">书名</span>
+        这样的占位</strong>，运行时会被每本书的元数据替换。
+        其他字符（点号、冒号、《》、年、第…页 等）<strong>原样输出</strong>。
       </div>
       <div class="tpl-intro-example">
         <span class="tpl-intro-tag">模板</span>
-        <code>{author}. {title}[{doc_type}]. {place}: {publisher}, {year}: {page}.</code>
+        <span class="tpl-intro-tpl">
+          <span class="tpl-token tpl-token-req tpl-token--demo">作者</span>.
+          <span class="tpl-token tpl-token-req tpl-token--demo">书名</span>[<span class="tpl-token tpl-token-req tpl-token--demo">文献类型</span>].
+          <span class="tpl-token tpl-token-req tpl-token--demo">出版地</span>:
+          <span class="tpl-token tpl-token-req tpl-token--demo">出版社</span>,
+          <span class="tpl-token tpl-token-req tpl-token--demo">出版年</span>:
+          <span class="tpl-token tpl-token-req tpl-token--demo">页码</span>.
+        </span>
         <span class="tpl-intro-tag tpl-intro-tag--out">输出</span>
         <span class="tpl-intro-rendered">任继愈. 中国哲学发展史[M]. 北京: 人民出版社, 1983: 25.</span>
       </div>

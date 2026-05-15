@@ -3501,8 +3501,29 @@ async function handleFormatDelete(fmtId) {
 }
 
 
-// 占位：任务 4.3 实现
-async function handleFormatExport(fmtId) { alert('导出功能待阶段 4 实现'); }
+// 任务 4.3：导出 JSON
+async function handleFormatExport(fmtId) {
+  const fmt = await window.xdFormats.getFormatById(fmtId);
+  if (!fmt) return;
+  const payload = {
+    "$schema": "xundian-cite/v1",
+    name: fmt.name,
+    template: fmt.template,
+    based_on: fmt.parent_id || null,
+    exported_at: Math.floor(Date.now() / 1000),
+  };
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const safeName = fmt.name.replace(/[\\/:*?"<>|]/g, '_');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${safeName}.xundian-cite.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
 
 
 async function rerenderAllCitations() {

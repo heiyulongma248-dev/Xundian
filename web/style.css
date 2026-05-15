@@ -687,3 +687,11 @@ body.multiselect-active .book-card .actions { display: none; }
 .drop-overlay-icon { font-size: 72px; line-height: 1; margin-bottom: 14px; }
 .drop-overlay-title { font-size: 22px; font-weight: 600; margin-bottom: 10px; }
 .drop-overlay-hint { font-size: 13px; color: #666; line-height: 1.7; }
+
+/* 编辑书目弹窗里的字段说明文字 */
+.hint-inline {
+  color: #888;
+  font-size: 11px;
+  font-weight: normal;
+  margin-left: 4px;
+}

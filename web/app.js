@@ -1486,7 +1486,15 @@ async function editBookMeta(book) {
       </div>
 
       <label>作者</label><input id="m-author" value="${escapeHtml(book.author)}" />
+      <label>责任方式 <span class="hint-inline">（著/编/主编/译/整理，"著"自动省略）</span></label>
+        <input id="m-role" value="${escapeHtml(book.role || '')}" placeholder="可留空" />
+      <label>国别 <span class="hint-inline">（如"日""美"，留空则不输出 [国别] 前缀）</span></label>
+        <input id="m-country" value="${escapeHtml(book.country || '')}" placeholder="可留空" />
       <label>书名</label><input id="m-title" value="${escapeHtml(book.title)}" />
+      <label>译者 <span class="hint-inline">（如"谭汝谦、林启彦"）</span></label>
+        <input id="m-translator" value="${escapeHtml(book.translator || '')}" placeholder="可留空" />
+      <label>版次 <span class="hint-inline">（如填"2"渲染为"(第2版)"）</span></label>
+        <input id="m-edition" value="${escapeHtml(book.edition || '')}" placeholder="可留空" />
       <label>文献类型（M=专著, J=期刊, N=报纸）</label>
         <input id="m-doctype" value="${escapeHtml(book.doc_type)}" />
       <label>出版地</label><input id="m-place" value="${escapeHtml(book.place)}" />
@@ -1504,7 +1512,11 @@ async function editBookMeta(book) {
       }
       return {
         author: $('#m-author').value.trim(),
+        role: $('#m-role').value.trim(),
+        country: $('#m-country').value.trim(),
         title: $('#m-title').value.trim(),
+        translator: $('#m-translator').value.trim(),
+        edition: $('#m-edition').value.trim(),
         doc_type: $('#m-doctype').value.trim() || 'M',
         place: $('#m-place').value.trim(),
         publisher: $('#m-pub').value.trim(),

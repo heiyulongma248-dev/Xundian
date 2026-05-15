@@ -650,6 +650,28 @@ const CASES = [
     input: '黄仁宇. 万历十五年[M]. 修订版. 北京: 中华书局, 2007.',
     expect: { author: '黄仁宇', title: '万历十五年', edition: '修订', place: '北京', publisher: '中华书局', year: '2007' },
   },
+
+  // ========== country / translator ==========
+  {
+    name: 'country [日] 前缀',
+    input: '[日]实藤惠秀：《中国人留学日本史》，谭汝谦、林启彦译，香港：中文大学出版社，1982年，第11-12页。',
+    expect: { country: '日', author: '实藤惠秀', translator: '谭汝谦、林启彦', title: '中国人留学日本史', place: '香港', publisher: '中文大学出版社', year: '1982' },
+  },
+  {
+    name: 'country [美] + 全角 ［］',
+    input: '［美］斐迪南·滕尼斯：《共同体与社会》，林荣远译，北京：商务印书馆，1999年，第4页。',
+    expect: { country: '美', author: '斐迪南·滕尼斯', translator: '林荣远', title: '共同体与社会', place: '北京', publisher: '商务印书馆', year: '1999' },
+  },
+  {
+    name: 'translator — 单译者',
+    input: '蒙森：《罗马史》，李稼年译，北京：商务印书馆，2014年，第3页。',
+    expect: { author: '蒙森', translator: '李稼年', title: '罗马史', place: '北京', publisher: '商务印书馆', year: '2014' },
+  },
+  {
+    name: '无 country：[M] 标签不应被当成 country',
+    input: '胡适. 胡适日记全编[M]. 合肥: 安徽教育出版社, 2001.',
+    expect: { country: '', author: '胡适', title: '胡适日记全编', doc_type: 'M' },
+  },
 ];
 
 // —— 跑测试 ——

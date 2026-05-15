@@ -1126,6 +1126,23 @@ function parseBookMetadata(input) {
     docTypeTextInS = typeMatch[0];
   }
 
+  // 2.5 国别前缀检测：[日] / [美] / ［日］ / 〔日〕 在 author 位置出现
+  //     护栏：不能是已识别的文献类型标签（[M]/[J]/...），后面跟字符必须是 CJK / Latin（看着像作者名开头）
+  {
+    const countryRe = /[\[［〔]\s*([^\]］〕\s]{1,8})\s*[\]］〕]/g;
+    let cm;
+    while ((cm = countryRe.exec(s)) !== null) {
+      const inner = cm[1];
+      // 排除：单个英文文献类型字符
+      if (/^[MJNDPCRS]$/i.test(inner)) continue;
+      // 后字必须是 CJK 或 Latin（确保接的是作者名，不是其他括号注释）
+      const afterCh = s[cm.index + cm[0].length];
+      if (!afterCh || !/[一-鿿A-Za-z·]/.test(afterCh)) continue;
+      out.country = inner;
+      break;
+    }
+  }
+
   // 3. 强信号：出版社（中文后缀）— 同时记下结束位置，给年份评分用
   //    三层试探，从最稳到最贪：
   //      3a. 锚定正则（前面有分隔符 / 字符串起点）—— 最可靠
@@ -1481,20 +1498,49 @@ function parseBookMetadata(input) {
   }
 
   // 12.5 暴露 role：检测 author 末尾的责任方式 marker，剥下来写到 out.role
-  //      只在 author 已确定时做。"著"/"撰" 归一化为空（"著"按 spec §6.2 自动省略）
+  //      只在 author 已确定时做。"著"/"撰" 归一化为空。
+  //      注意：若 author marker 是"译"，本人就是译者；保留 author 即可（不写到 translator）。
+  let authorIsTranslator = false;
   if (out.author) {
+    // 先剥掉 author 开头的国别前缀（与 step 2.5 检测到的 country 对应）
+    if (out.country) {
+      const countryStripRe = /^[\[［〔]\s*[^\]］〕]{1,8}\s*[\]］〕]\s*/;
+      out.author = out.author.replace(countryStripRe, '').trim();
+    }
     const roleRe = /(编著|编译|主编|选编|编辑|编校|编)$/;
     const rm = out.author.match(roleRe);
     if (rm) {
-      const marker = rm[1];
-      out.author = out.author.slice(0, -marker.length).trim();
-      out.role = marker;
+      out.author = out.author.slice(0, -rm[1].length).trim();
+      out.role = rm[1];
     } else {
       const omitRe = /(著|撰)$/;
       const om = out.author.match(omitRe);
       if (om) {
         out.author = out.author.slice(0, -om[1].length).trim();
-        out.role = '';  // "著"/"撰" → 空
+        out.role = '';
+      } else {
+        // 末尾是"译/主译"？整本书的主要责任人就是译者
+        const trRe = /(主译|译)$/;
+        const tm = out.author.match(trRe);
+        if (tm) {
+          authorIsTranslator = true;
+        }
+      }
+    }
+  }
+
+  // 12.6 译者检测："X译" 段。若 author 自己就是译者（12.5 已标），不重复设置
+  if (!authorIsTranslator && !out.translator) {
+    // 候选：靠近书名后、出版社前的"...译"
+    //   X 部分：CJK 名字（含人名连缀的"、"），2-30 字
+    const translatorRe = /([一-鿿]{2,30}(?:、[一-鿿]{2,30})*)\s*译(?![一-鿿])/g;
+    let tm;
+    while ((tm = translatorRe.exec(s)) !== null) {
+      const cand = tm[1];
+      // 不能恰好等于已识别的 author（避免 author=译者 那种 12.5 已处理的场景重新踩进来）
+      if (cand && cand !== out.author) {
+        out.translator = cand;
+        break;
       }
     }
   }

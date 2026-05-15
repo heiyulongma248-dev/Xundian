@@ -1413,7 +1413,13 @@ function parseBookMetadata(input) {
       while ((sm = strongSepRe.exec(beforeMarker)) !== null) lastSep = sm.index;
       let cand = before.slice(lastSep + 1).trim();
       cand = cand.replace(/[,，]\s*$/, '').trim();
-      if (cand && cand.length >= 2 && cand.length <= 50 &&
+      // 护栏：稀疏空白分隔输入（无强分隔符 + 含 3+ 个空白分隔 token）→ 不信任
+      // 这条路径，留给 step 12 用更稳的"剥已识别字段后取首 token"兜底。
+      // 例：输入 "胡适 胡适日记全编 合肥 胡适主编 胡适译" 时这里会把整串误判为作者。
+      const tokenCount = cand.split(/\s+/).filter(Boolean).length;
+      const tooSparse = lastSep === -1 && tokenCount >= 3;
+      if (!tooSparse &&
+          cand && cand.length >= 2 && cand.length <= 50 &&
           !/(出版社|书局|印书馆|书店)/.test(cand) &&
           !cand.includes('《') &&
           cand !== out.title) {

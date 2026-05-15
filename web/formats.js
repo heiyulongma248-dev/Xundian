@@ -183,6 +183,27 @@ function getBuiltinTemplate(formatId) {
 }
 
 
+// —— localStorage 持久化"当前全局格式"——
+
+const STORAGE_KEY = 'xundian:active_format';
+
+function getActiveFormatId() {
+  try {
+    return localStorage.getItem(STORAGE_KEY) || DEFAULT_FORMAT_ID;
+  } catch (_) {
+    return DEFAULT_FORMAT_ID;
+  }
+}
+
+function setActiveFormatId(id) {
+  try {
+    localStorage.setItem(STORAGE_KEY, id);
+  } catch (_) {
+    // 隐私模式忽略
+  }
+}
+
+
 // 暴露给浏览器和测试（globalThis.window 在 Node 测试里被预先 stub）
 window.xdFormats = {
   renderCitation,
@@ -192,4 +213,6 @@ window.xdFormats = {
   DEFAULT_FORMAT_ID,
   getBuiltinTemplate,
   VALID_FIELDS: [...VALID_FIELDS],
+  getActiveFormatId,
+  setActiveFormatId,
 };

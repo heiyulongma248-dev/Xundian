@@ -721,6 +721,9 @@ function onScanDone(payload) {
   $('#scan-actions').classList.toggle('hidden', total === 0);
   setStatus(`扫描完成 · ${total} 条`, null);
 
+  // 首次渲染时通过 rerenderAllCitations 修正用户格式 chip 名（避免显示 user_xxx）
+  rerenderAllCitations();
+
   if (total > 0) {
     setTimeout(() => {
       showAlert(
@@ -2100,6 +2103,8 @@ async function runLookup() {
     header.innerHTML = `<span class="dim" style="font-size:12px;">查询：</span><b>「${escapeHtml(quote)}」</b>`;
     container.appendChild(header);
     container.appendChild(renderResultCard(item));
+    // 首次渲染时通过 rerenderAllCitations 修正用户格式 chip 名（避免显示 user_xxx）
+    await rerenderAllCitations();
     setStatus('查询完成');
   });
 }

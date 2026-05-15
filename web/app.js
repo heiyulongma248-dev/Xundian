@@ -531,12 +531,15 @@ const API_DISPATCH = {
     // 缓存给 renderResultCard 用：当 Python 没返回 candidate.citation（例如 SW
     // 还在用旧版 pysrc 缓存）时，JS 端能根据 book_file 自己拼一条 fallback。
     _lastBooksMeta = booksMeta || {};
+    const { id: formatId, template: formatTemplate } = await _resolveActiveFormatPayload();
     const result = await window.py.call(
       'scan_document',
       _stagedDocx.bytes,
       booksData,
       booksMeta,
       _stagedDocx.name,
+      formatId,
+      formatTemplate,
     );
     return { ok: true, ...(result || {}) };
   },
@@ -546,6 +549,7 @@ const API_DISPATCH = {
     const booksData = await window.dbHelpers.getBooksPagesData(fileIds);
     const booksMeta = await window.dbHelpers.getBooksMeta();
     _lastBooksMeta = booksMeta || {};
+    const { id: formatId, template: formatTemplate } = await _resolveActiveFormatPayload();
     const result = await window.py.call(
       'lookup_quote',
       quote,
@@ -553,6 +557,8 @@ const API_DISPATCH = {
       ctxAfter || '',
       booksData,
       booksMeta,
+      formatId,
+      formatTemplate,
     );
     return { ok: true, ...(result || {}) };
   },
@@ -567,7 +573,8 @@ const API_DISPATCH = {
 
   // —— 导出 ——
   async export_report(suggestedName) {
-    const bytes = await window.py.call('export_report_bytes');
+    const { id: formatId, template: formatTemplate } = await _resolveActiveFormatPayload();
+    const bytes = await window.py.call('export_report_bytes', formatId, formatTemplate);
     if (!bytes) throw new Error('导出失败：Python 没返回字节流');
     const arr = bytes instanceof Uint8Array ? bytes : new Uint8Array(bytes);
     const r = await window.fs.downloadBytes(arr, suggestedName || '引文核对表.docx');
@@ -714,6 +721,9 @@ function onScanDone(payload) {
   $('#scan-actions').classList.toggle('hidden', total === 0);
   setStatus(`扫描完成 · ${total} 条`, null);
 
+  // 首次渲染时通过 rerenderAllCitations 修正用户格式 chip 名（避免显示 user_xxx）
+  rerenderAllCitations();
+
   if (total > 0) {
     setTimeout(() => {
       showAlert(
@@ -735,6 +745,7 @@ function switchTab(target) {
   $$('.tab-btn').forEach((b) => b.classList.toggle('active', b.dataset.tab === target));
   $$('.tab-panel').forEach((p) => p.classList.toggle('active', p.id === `tab-${target}`));
   if (target === 'library') refreshBookList();
+  if (target === 'formats') renderFormatList();
 }
 
 $$('.tab-btn').forEach((btn) => {
@@ -1100,6 +1111,8 @@ function _inParens(s, idx) {
 function parseBookMetadata(input) {
   const out = {
     title: '', author: '', publisher: '', year: '', place: '', doc_type: '',
+    // 新增 4 字段（默认空串）
+    role: '', country: '', translator: '', edition: '',
     _meta: {
       strippedSecondaries: [],  // [{name, role}]
       strippedEditions: [],     // ["第2版", ...]
@@ -1122,6 +1135,23 @@ function parseBookMetadata(input) {
   if (typeMatch) {
     out.doc_type = typeMatch[1].toUpperCase();
     docTypeTextInS = typeMatch[0];
+  }
+
+  // 2.5 国别前缀检测：[日] / [美] / ［日］ / 〔日〕 在 author 位置出现
+  //     护栏：不能是已识别的文献类型标签（[M]/[J]/...），后面跟字符必须是 CJK / Latin（看着像作者名开头）
+  {
+    const countryRe = /[\[［〔]\s*([^\]］〕\s]{1,8})\s*[\]］〕]/g;
+    let cm;
+    while ((cm = countryRe.exec(s)) !== null) {
+      const inner = cm[1];
+      // 排除：单个英文文献类型字符
+      if (/^[MJNDPCRS]$/i.test(inner)) continue;
+      // 后字必须是 CJK 或 Latin（确保接的是作者名，不是其他括号注释）
+      const afterCh = s[cm.index + cm[0].length];
+      if (!afterCh || !/[一-鿿A-Za-z·]/.test(afterCh)) continue;
+      out.country = inner;
+      break;
+    }
   }
 
   // 3. 强信号：出版社（中文后缀）— 同时记下结束位置，给年份评分用
@@ -1284,9 +1314,21 @@ function parseBookMetadata(input) {
   });
 
   // 7. 剥离版本标记（第N版 / 修订版 / 增订版 / 新版 / 再版 / 影印本 / 影印版）
+  //    暴露第一处给 out.edition：数字版次抽数字（"第2版"→"2"）；其他关键词原样
   workingS = workingS.replace(
-    /(第\s*\d+\s*版|修订版|增订版|新版|再版|影印本|影印版)/g,
-    (m) => { out._meta.strippedEditions.push(m); return ' '; }
+    /(第\s*(\d+)\s*版|修订版|增订版|新版|再版|影印本|影印版)/g,
+    (m, _whole, num) => {
+      out._meta.strippedEditions.push(m);
+      if (!out.edition) {
+        if (num) out.edition = num;
+        else if (/修订/.test(m)) out.edition = '修订';
+        else if (/增订/.test(m)) out.edition = '增订';
+        else if (/新版/.test(m)) out.edition = '新版';
+        else if (/再版/.test(m)) out.edition = '再版';
+        else if (/影印/.test(m)) out.edition = '影印';
+      }
+      return ' ';
+    }
   );
 
   // 8. 书名：优先 《》/「」/﹝﹞
@@ -1354,21 +1396,30 @@ function parseBookMetadata(input) {
 
   // 10. 主作者关键字兜底（只用 PRIMARY 标记，不含 整理/编辑 等次要角色）
   //     适用于没有 [M] 的输入，比如 "胡适 著. 胡适日记..."
+  //     注：cand 保留 marker 末尾（如 "任继愈主编"），由后续 12.5 步骤统一剥离并写入 out.role
   if (!out.author) {
     const PRIMARY = /(编著|编译|选编|主译|主编|著|译|撰)(?![一-鿿])/g;
     let lastMarker = null;
     let mm;
     while ((mm = PRIMARY.exec(workingS)) !== null) lastMarker = mm;
     if (lastMarker) {
-      const markerStart = lastMarker.index;
-      const before = workingS.slice(0, markerStart);
+      const markerEnd = lastMarker.index + lastMarker[0].length;
+      const before = workingS.slice(0, markerEnd);
       const strongSepRe = /[.。;；\n]/g;
       let lastSep = -1;
       let sm;
-      while ((sm = strongSepRe.exec(before)) !== null) lastSep = sm.index;
+      // 只在 marker 之前找分隔符，避免把 marker 本身切掉
+      const beforeMarker = workingS.slice(0, lastMarker.index);
+      while ((sm = strongSepRe.exec(beforeMarker)) !== null) lastSep = sm.index;
       let cand = before.slice(lastSep + 1).trim();
       cand = cand.replace(/[,，]\s*$/, '').trim();
-      if (cand && cand.length >= 2 && cand.length <= 50 &&
+      // 护栏：稀疏空白分隔输入（无强分隔符 + 含 3+ 个空白分隔 token）→ 不信任
+      // 这条路径，留给 step 12 用更稳的"剥已识别字段后取首 token"兜底。
+      // 例：输入 "胡适 胡适日记全编 合肥 胡适主编 胡适译" 时这里会把整串误判为作者。
+      const tokenCount = cand.split(/\s+/).filter(Boolean).length;
+      const tooSparse = lastSep === -1 && tokenCount >= 3;
+      if (!tooSparse &&
+          cand && cand.length >= 2 && cand.length <= 50 &&
           !/(出版社|书局|印书馆|书店)/.test(cand) &&
           !cand.includes('《') &&
           cand !== out.title) {
@@ -1416,6 +1467,11 @@ function parseBookMetadata(input) {
     scratch = stripWord(scratch, out.author);
     scratch = stripWord(scratch, out.title);
     if (out.doc_type) scratch = scratch.replace(/\[[MJNDPCRS]\]/gi, ' ');
+    // 步骤 8 已经从 《》 / 「」/ ﹝﹞ 抽出 title；这里把这些括号连内容一起从 scratch 抠掉，
+    // 否则 "黄仁宇：《万历十五年》（）..." 这种残留会被当 author。
+    scratch = scratch.replace(/《[^》]*》|「[^」]*」|﹝[^﹞]*﹞/g, ' ');
+    // 步骤 7 把 "第N版"/"修订版" 等替成空格，但留下 "（  ）" 这种空壳；清掉
+    scratch = scratch.replace(/（\s*）|\(\s*\)/g, ' ');
 
     // 先按句级分隔符切；如果只切出 1 段且段内有空白，再按空白细分
     // —— 处理 "胡适 请回答1998 ..." 这种无标点的稀疏输入
@@ -1458,6 +1514,54 @@ function parseBookMetadata(input) {
     }
   }
 
+  // 12.5 暴露 role：检测 author 末尾的责任方式 marker，剥下来写到 out.role
+  //      只在 author 已确定时做。"著"/"撰" 归一化为空。
+  //      注意：若 author marker 是"译"，本人就是译者；保留 author 即可（不写到 translator）。
+  let authorIsTranslator = false;
+  if (out.author) {
+    // 先剥掉 author 开头的国别前缀（与 step 2.5 检测到的 country 对应）
+    if (out.country) {
+      const countryStripRe = /^[\[［〔]\s*[^\]］〕]{1,8}\s*[\]］〕]\s*/;
+      out.author = out.author.replace(countryStripRe, '').trim();
+    }
+    const roleRe = /(编著|编译|主编|选编|编辑|编校|编)$/;
+    const rm = out.author.match(roleRe);
+    if (rm) {
+      out.author = out.author.slice(0, -rm[1].length).trim();
+      out.role = rm[1];
+    } else {
+      const omitRe = /(著|撰)$/;
+      const om = out.author.match(omitRe);
+      if (om) {
+        out.author = out.author.slice(0, -om[1].length).trim();
+        out.role = '';
+      } else {
+        // 末尾是"译/主译"？整本书的主要责任人就是译者
+        const trRe = /(主译|译)$/;
+        const tm = out.author.match(trRe);
+        if (tm) {
+          authorIsTranslator = true;
+        }
+      }
+    }
+  }
+
+  // 12.6 译者检测："X译" 段。若 author 自己就是译者（12.5 已标），不重复设置
+  if (!authorIsTranslator && !out.translator) {
+    // 候选：靠近书名后、出版社前的"...译"
+    //   X 部分：CJK 名字（含人名连缀的"、"），2-30 字
+    const translatorRe = /([一-鿿]{2,30}(?:、[一-鿿]{2,30})*)\s*译(?![一-鿿])/g;
+    let tm;
+    while ((tm = translatorRe.exec(s)) !== null) {
+      const cand = tm[1];
+      // 不能恰好等于已识别的 author（避免 author=译者 那种 12.5 已处理的场景重新踩进来）
+      if (cand && cand !== out.author) {
+        out.translator = cand;
+        break;
+      }
+    }
+  }
+
   // 13. 收尾清理：只去首尾空白和小标点（不动各类括号）
   for (const k of Object.keys(out)) {
     if (typeof out[k] === 'string' && out[k]) {
@@ -1486,7 +1590,15 @@ async function editBookMeta(book) {
       </div>
 
       <label>作者</label><input id="m-author" value="${escapeHtml(book.author)}" />
+      <label>责任方式 <span class="hint-inline">（著/编/主编/译/整理，"著"自动省略）</span></label>
+        <input id="m-role" value="${escapeHtml(book.role || '')}" placeholder="可留空" />
+      <label>国别 <span class="hint-inline">（如"日""美"，留空则不输出 [国别] 前缀）</span></label>
+        <input id="m-country" value="${escapeHtml(book.country || '')}" placeholder="可留空" />
       <label>书名</label><input id="m-title" value="${escapeHtml(book.title)}" />
+      <label>译者 <span class="hint-inline">（如"谭汝谦、林启彦"）</span></label>
+        <input id="m-translator" value="${escapeHtml(book.translator || '')}" placeholder="可留空" />
+      <label>版次 <span class="hint-inline">（如填"2"渲染为"(第2版)"）</span></label>
+        <input id="m-edition" value="${escapeHtml(book.edition || '')}" placeholder="可留空" />
       <label>文献类型（M=专著, J=期刊, N=报纸）</label>
         <input id="m-doctype" value="${escapeHtml(book.doc_type)}" />
       <label>出版地</label><input id="m-place" value="${escapeHtml(book.place)}" />
@@ -1504,7 +1616,11 @@ async function editBookMeta(book) {
       }
       return {
         author: $('#m-author').value.trim(),
+        role: $('#m-role').value.trim(),
+        country: $('#m-country').value.trim(),
         title: $('#m-title').value.trim(),
+        translator: $('#m-translator').value.trim(),
+        edition: $('#m-edition').value.trim(),
         doc_type: $('#m-doctype').value.trim() || 'M',
         place: $('#m-place').value.trim(),
         publisher: $('#m-pub').value.trim(),
@@ -1644,6 +1760,102 @@ let lastScanResults = [];
 // 缓存）时，JS 端能直接按 book_file 拼一条 GB/T 7714 风格的"出处建议"。
 let _lastBooksMeta = {};
 
+// 每张已渲染卡片的元数据缓存。chip 切换 / 单卡重渲染时按 cardId 查回
+// meta + 页码字段，无需重新解析整个结果树。页面刷新即清空。
+const _cardMetaMap = new Map();
+
+// chip 点击：弹出格式下拉菜单；点空白处关菜单。
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.fmt-chip');
+  if (chip) {
+    e.preventDefault();
+    e.stopPropagation();
+    showFmtChipMenu(chip);
+    return;
+  }
+  // 点 chip 之外的地方关闭已开的菜单
+  document.querySelectorAll('.fmt-chip-menu').forEach(el => el.remove());
+});
+
+// "📋 复制脚注"按钮代理：从 DOM 取 chip 当前渲染出来的脚注文本。
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.btn-copy-citation');
+  if (!btn) return;
+  const cardId = btn.dataset.cardId;
+  const textEl = document.querySelector(`.cand-citation-text[data-card-id="${cardId}"]`);
+  if (!textEl) return;
+  try {
+    await navigator.clipboard.writeText(textEl.textContent);
+    setStatus('脚注已复制到剪贴板');
+  } catch (err) {
+    showAlert('复制到剪贴板失败：' + err, '复制失败');
+  }
+});
+
+async function showFmtChipMenu(chip) {
+  document.querySelectorAll('.fmt-chip-menu').forEach(el => el.remove());
+  const cardId = chip.dataset.cardId;
+  const currentFmt = chip.dataset.currentFmt;
+  const all = await window.xdFormats.listAllFormats();
+  const builtins = all.filter(f => f.category === 'builtin');
+  const users = all.filter(f => f.category === 'user');
+
+  const renderItems = (arr) => arr.map(f =>
+    `<div class="item${f.id === currentFmt ? ' active' : ''}" data-fmt-id="${escapeHtml(f.id)}">
+       ${f.id === currentFmt ? '✓ ' : '　 '}${escapeHtml(f.name)}
+     </div>`
+  ).join('');
+
+  let html = renderItems(builtins);
+  if (users.length) html += '<div class="divider"></div>' + renderItems(users);
+  html += '<div class="divider"></div>'
+       + '<div class="item" data-fmt-id="__manage__">＋ 管理格式…</div>';
+
+  const menu = document.createElement('div');
+  menu.className = 'fmt-chip-menu';
+  menu.innerHTML = html;
+  const rect = chip.getBoundingClientRect();
+  menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
+  menu.style.left = `${rect.left + window.scrollX}px`;
+  document.body.appendChild(menu);
+
+  menu.addEventListener('click', (e) => {
+    const item = e.target.closest('.item');
+    if (!item) return;
+    const newFmtId = item.dataset.fmtId;
+    if (newFmtId === '__manage__') {
+      const tab = document.querySelector('.tab-btn[data-tab="formats"]');
+      if (tab) tab.click();
+    } else {
+      applyCardFormatOverride(cardId, newFmtId);
+    }
+    menu.remove();
+  });
+}
+
+async function applyCardFormatOverride(cardId, formatId) {
+  const cardData = _cardMetaMap.get(cardId);
+  if (!cardData) return;
+  const fmt = await window.xdFormats.getFormatById(formatId);
+  if (!fmt) return;
+  let newCitation;
+  try {
+    newCitation = window.xdFormats.renderCitation({
+      template: fmt.template,
+      meta: cardData.meta,
+      book_page: cardData.book_page,
+      book_page_end: cardData.book_page_end,
+      pdf_page: cardData.pdf_page,
+    });
+  } catch (err) {
+    console.error(err); return;
+  }
+  const chip = document.querySelector(`.fmt-chip[data-card-id="${cardId}"]`);
+  if (chip) { chip.dataset.currentFmt = formatId; chip.textContent = `📐 ${fmt.name} ▾`; }
+  const textEl = document.querySelector(`.cand-citation-text[data-card-id="${cardId}"]`);
+  if (textEl) textEl.textContent = newCitation;
+}
+
 // 客户端版的 format_citation —— 必须和 pysrc/citation.py 一致
 function _formatCitationJs(meta, bookFile, bookPage, pdfPage) {
   const m = meta || {};
@@ -1671,6 +1883,9 @@ function renderResultCard(item) {
   const card = document.createElement('div');
   card.className = 'result-card';
 
+  const activeFormatId = window.xdFormats.getActiveFormatId();
+  const activeFormatName = (window.xdFormats.BUILTIN_FORMATS.find(f => f.id === activeFormatId) || {}).name || activeFormatId;
+
   const headerHtml = `
     <div class="header">
       <span class="status-badge ${st.cls}">${st.label}</span>
@@ -1679,9 +1894,35 @@ function renderResultCard(item) {
     <div class="quote">${escapeHtml(item.text)}</div>
   `;
 
-  const citationHtml = `
-    <div class="citation"><b>出处（建议）：</b>${escapeHtml(item.citation)}</div>
-  `;
+  // 主命中（best）信息，用作主卡片 chip / 复制按钮所属的 card 元数据。
+  // 主卡片的"出处（建议）"行原本只有 item.citation，没有 book_file/page，
+  // 这些值要从 best 取。如果 item 没有 candidates，主卡片就不挂 chip
+  // （没法本地重渲染），保持旧的静态展示。
+  const best = (item.candidates && item.candidates.length > 0) ? item.candidates[0] : null;
+  const mainCardId = `card-${item.quote_id || 'q'}-main`;
+
+  let citationHtml;
+  if (best) {
+    _cardMetaMap.set(mainCardId, {
+      meta: _lastBooksMeta[best.book_file] || {},
+      book_page: best.book_page,
+      book_page_end: best.book_page_end,
+      pdf_page: best.pdf_page,
+      book_file: best.book_file,
+    });
+    citationHtml = `
+      <div class="citation" data-card-id="${mainCardId}">
+        <span class="cand-citation-label" data-card-id="${mainCardId}">
+          <b>出处（建议）：</b><button class="fmt-chip" data-card-id="${mainCardId}" data-current-fmt="${escapeHtml(activeFormatId)}" type="button">📐 ${escapeHtml(activeFormatName)} ▾</button>
+        </span>
+        <span class="cand-citation-text" data-card-id="${mainCardId}">${escapeHtml(item.citation)}</span>
+      </div>
+    `;
+  } else {
+    citationHtml = `
+      <div class="citation"><b>出处（建议）：</b>${escapeHtml(item.citation)}</div>
+    `;
+  }
 
   let contextHtml = '';
   if (item.context_before || item.context_after) {
@@ -1692,8 +1933,7 @@ function renderResultCard(item) {
   }
 
   let bestHtml = '';
-  if (item.candidates && item.candidates.length > 0) {
-    const best = item.candidates[0];
+  if (best) {
     const bp = best.book_page != null ? `书内 p${best.book_page}${best.is_cross_page ? `–${best.book_page_end}` : ''}` : '书内页码未识别';
     const cross = best.is_cross_page ? '<span class="cross-page-tag">跨页</span> ' : '';
     bestHtml = `
@@ -1703,7 +1943,7 @@ function renderResultCard(item) {
       <div class="ctx-label"><b>书中片段：</b></div>
       <div class="snippet">……${escapeHtml(best.snippet_before)}<span class="highlight">${escapeHtml(item.text)}</span>${escapeHtml(best.snippet_after)}……</div>
       <div class="actions">
-        <button class="btn-tiny" data-act="copy" data-payload="${escapeHtml(item.citation)}">📋 复制脚注</button>
+        <button class="btn-tiny btn-copy-citation" data-card-id="${mainCardId}" type="button">📋 复制脚注</button>
         <button class="btn-tiny" data-act="open-pdf" data-file="${escapeHtml(best.book_file)}" data-page="${best.pdf_page}">📖 在 PDF 中查看</button>
       </div>
     `;
@@ -1721,6 +1961,8 @@ function renderResultCard(item) {
       <div class="alt-cands">
         <div class="alt-title">其他疑似候选（${others.length} 条，供人工对照）：</div>
         ${others.map((c, i) => {
+          const candIdx = i + 1;  // others[0] = candidate index 1（候选 2）
+          const cardId = `card-${item.quote_id || 'q'}-${candIdx}`;
           const bp = c.book_page != null ? `书内 p${c.book_page}${c.is_cross_page ? `–${c.book_page_end}` : ''}` : '书内页码未识别';
           const cross = c.is_cross_page ? '<span class="cross-page-tag">跨页</span> ' : '';
           // Python 端理应给每个候选附带 citation；如果没有（例如 SW 还在用
@@ -1728,17 +1970,29 @@ function renderResultCard(item) {
           // 保证候选卡片永远和主命中一样有"出处（建议）"和"复制脚注"。
           const candCitation = c.citation
             || _formatCitationJs(_lastBooksMeta[c.book_file], c.book_file, c.book_page, c.pdf_page);
+          _cardMetaMap.set(cardId, {
+            meta: _lastBooksMeta[c.book_file] || {},
+            book_page: c.book_page,
+            book_page_end: c.book_page_end,
+            pdf_page: c.pdf_page,
+            book_file: c.book_file,
+          });
           return `
             <div class="alt-cand-card">
               <div class="alt-cand-header"><b>候选 ${i + 2}</b></div>
-              <div class="citation" style="margin-top:6px;"><b>出处（建议）：</b>${escapeHtml(candCitation)}</div>
+              <div class="citation" style="margin-top:6px;" data-card-id="${cardId}">
+                <span class="cand-citation-label" data-card-id="${cardId}">
+                  <b>出处（建议）：</b><button class="fmt-chip" data-card-id="${cardId}" data-current-fmt="${escapeHtml(activeFormatId)}" type="button">📐 ${escapeHtml(activeFormatName)} ▾</button>
+                </span>
+                <span class="cand-citation-text" data-card-id="${cardId}">${escapeHtml(candCitation)}</span>
+              </div>
               <div class="ctx-label" style="margin-top:8px;"><b>命中位置：</b></div>
               <div class="ctx-text">${cross}${escapeHtml(c.book_file)} · PDF p${c.pdf_page}${c.is_cross_page ? `–${c.pdf_page_end}` : ''} · ${bp}</div>
               <div class="scores">主分 ${c.score.toFixed(2)} · 语境分 ${c.ctx_score.toFixed(2)} · 综合 ${c.final_score.toFixed(2)}</div>
               <div class="ctx-label"><b>书中片段：</b></div>
               <div class="snippet">……${escapeHtml(c.snippet_before)}<span class="highlight">${escapeHtml(item.text)}</span>${escapeHtml(c.snippet_after)}……</div>
               <div class="actions">
-                <button class="btn-tiny" data-act="copy" data-payload="${escapeHtml(candCitation)}">📋 复制脚注</button>
+                <button class="btn-tiny btn-copy-citation" data-card-id="${cardId}" type="button">📋 复制脚注</button>
                 <button class="btn-tiny" data-act="open-pdf" data-file="${escapeHtml(c.book_file)}" data-page="${c.pdf_page}">📖 在 PDF 中查看</button>
               </div>
             </div>
@@ -1750,17 +2004,12 @@ function renderResultCard(item) {
 
   card.innerHTML = headerHtml + citationHtml + contextHtml + bestHtml + altHtml;
 
+  // open-pdf 还是绑在 data-act 上；copy 改走顶层 .btn-copy-citation 代理，
+  // 以便随 chip 状态读取 DOM 文本。
   card.querySelectorAll('button[data-act]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const act = btn.dataset.act;
-      if (act === 'copy') {
-        try {
-          await navigator.clipboard.writeText(btn.dataset.payload);
-          setStatus('脚注已复制到剪贴板');
-        } catch (e) {
-          showAlert('复制到剪贴板失败：' + e, '复制失败');
-        }
-      } else if (act === 'open-pdf') {
+      if (act === 'open-pdf') {
         const r = await callApi('open_pdf_at_page', btn.dataset.file, parseInt(btn.dataset.page));
         if (r && r.warning) {
           showAlert(r.warning, '提示');
@@ -1860,6 +2109,8 @@ async function runLookup() {
     header.innerHTML = `<span class="dim" style="font-size:12px;">查询：</span><b>「${escapeHtml(quote)}」</b>`;
     container.appendChild(header);
     container.appendChild(renderResultCard(item));
+    // 首次渲染时通过 rerenderAllCitations 修正用户格式 chip 名（避免显示 user_xxx）
+    await rerenderAllCitations();
     setStatus('查询完成');
   });
 }
@@ -1978,9 +2229,14 @@ document.addEventListener('click', (e) => {
   const parsed = parseBookMetadata(text);
 
   // 把识别结果填到对应 input；总是覆盖（用户已确认想用智能识别）
+  // 10 个字段：6 个原字段 + 4 个新字段（role/country/translator/edition）
   const fieldMap = [
     ['m-author', 'author'],
+    ['m-role', 'role'],
+    ['m-country', 'country'],
     ['m-title', 'title'],
+    ['m-translator', 'translator'],
+    ['m-edition', 'edition'],
     ['m-doctype', 'doc_type'],
     ['m-place', 'place'],
     ['m-pub', 'publisher'],
@@ -2017,7 +2273,7 @@ document.addEventListener('click', (e) => {
     );
   } else if (statusEl) {
     const lines = [];
-    lines.push(`<div class="smart-parse-status-line ok">已识别 ${recognizedCount}/6 个字段</div>`);
+    lines.push(`<div class="smart-parse-status-line ok">已识别 ${recognizedCount}/${fieldMap.length} 个字段</div>`);
 
     // 已忽略的次要贡献者
     const sec = parsed._meta && parsed._meta.strippedSecondaries || [];
@@ -2830,6 +3086,903 @@ function _updateBootPhase(phase, detail) {
   if (fill) fill.style.width = `${pct}%`;
 }
 
+// =========================================================
+// 全局格式选择器
+// =========================================================
+
+async function renderFormatList() {
+  const all = await window.xdFormats.listAllFormats();
+  const builtinHtml = all.filter(f => f.category === 'builtin').map(f => {
+    const isDefault = f.id === window.xdFormats.DEFAULT_FORMAT_ID;
+    const isModified = window.xdFormats.isModifiedBuiltin(f);
+    return `
+      <div class="fmt-item" data-fmt-id="${escapeHtml(f.id)}">
+        <div>
+          <span class="fmt-item-name">${escapeHtml(f.name)}</span>
+          ${isDefault ? '<span class="fmt-item-default">★ 默认</span>' : ''}
+          ${isModified ? '<span class="fmt-item-modified">●已修改</span>' : ''}
+        </div>
+        <div class="fmt-item-actions">
+          <button class="btn-tiny" data-action="edit">编辑</button>
+          <button class="btn-tiny" data-action="clone">基于此新建</button>
+          ${isModified ? '<button class="btn-tiny" data-action="reset">重置</button>' : ''}
+        </div>
+      </div>`;
+  }).join('');
+
+  const userHtml = all.filter(f => f.category === 'user').map(f => {
+    return `
+      <div class="fmt-item" data-fmt-id="${escapeHtml(f.id)}">
+        <div>
+          <span class="fmt-item-name">${escapeHtml(f.name)}</span>
+          ${f.parent_id ? `<span class="fmt-item-meta">克隆自 ${escapeHtml((window.xdFormats.BUILTIN_FORMATS.find(b => b.id === f.parent_id) || {}).name || f.parent_id)}</span>` : ''}
+        </div>
+        <div class="fmt-item-actions">
+          <button class="btn-tiny" data-action="edit">编辑</button>
+          <button class="btn-tiny" data-action="export">导出 JSON</button>
+          <button class="btn-tiny" data-action="delete">删除</button>
+        </div>
+      </div>`;
+  }).join('');
+
+  document.getElementById('fmt-list-builtin-items').innerHTML = builtinHtml;
+  document.getElementById('fmt-list-user-items').innerHTML = userHtml
+    || '<div class="hint" style="padding:12px;">还没有自定义格式 — 用上面三个按钮新建。</div>';
+}
+
+// 模板编辑器 modal
+//   options: { mode: 'edit'|'create-blank'|'clone', initialFormat: {name, template, parent_id?} }
+//   returns Promise that resolves to { name, template, parent_id? } on save, or null on cancel
+async function openTemplateEditor(options) {
+  const initial = options.initialFormat || { name: '', template: '', parent_id: null };
+  // 字段定义：英文 key、中文标签、tooltip
+  const FIELD_DEFS = [
+    { key: 'author',     label: '作者',     hint: '作者' },
+    { key: 'role',       label: '责任方式', hint: '主编/编/译…（"著"自动省略）' },
+    { key: 'country',    label: '国别',     hint: '如"日""美"' },
+    { key: 'title',      label: '书名',     hint: '书名' },
+    { key: 'translator', label: '译者',     hint: '译者（含多人，"、"分隔）' },
+    { key: 'edition',    label: '版次',     hint: '如"2"渲染为"(第2版)"' },
+    { key: 'doc_type',   label: '文献类型', hint: 'M=专著 / J=期刊 / N=报纸' },
+    { key: 'place',      label: '出版地',   hint: '出版地' },
+    { key: 'publisher',  label: '出版社',   hint: '出版社' },
+    { key: 'year',       label: '出版年',   hint: '出版年（如 2001）' },
+    { key: 'page',       label: '页码',     hint: '引文页（运行时由匹配结果决定）' },
+  ];
+  // 可选段插入默认值：常见组合
+  const OPT_DEFAULTS = {
+    role:       ['', ''],
+    country:    ['[', ']'],
+    translator: ['', '译，'],
+    edition:    ['（第', '版）'],
+  };
+  // 按钮：必填字段（直接渲染为 {field}）
+  const requiredButtonsHtml = FIELD_DEFS.map(({ key, label, hint }) =>
+    `<button class="tpl-insert-btn tpl-insert-btn--req" data-kind="req" data-field="${key}" draggable="true" type="button" title="点击或拖入：{${key}} — ${escapeHtml(hint)}">${escapeHtml(label)}</button>`
+  ).join('');
+  // 按钮：可选段（带默认 prefix/suffix）
+  const optionalFields = ['role', 'country', 'translator', 'edition'];
+  const optionalButtonsHtml = optionalFields.map(key => {
+    const def = FIELD_DEFS.find(d => d.key === key);
+    const [pre, suf] = OPT_DEFAULTS[key] || ['', ''];
+    return `<button class="tpl-insert-btn tpl-insert-btn--opt" data-kind="opt" data-field="${key}" data-prefix="${escapeHtml(pre)}" data-suffix="${escapeHtml(suf)}" draggable="true" type="button" title="点击或拖入可选段 {?${key} ${pre}{}${suf}} — 空则整段消失">?${escapeHtml(def.label)}</button>`;
+  }).join('');
+
+  const sampleBooks = [
+    {
+      label: '★ 全字段示例（11 个占位符都有值）',
+      meta: { author: '罗杰·谢泼德', role: '编', country: '美', translator: '张洪明', edition: '修订', title: '心理表征', doc_type: 'M', place: '上海', publisher: '上海人民出版社', year: '2005' },
+      book_page: 102, book_page_end: 105, pdf_page: null,
+    },
+    {
+      label: '中文专著（任继愈主编《中国哲学发展史》）',
+      meta: { author: '任继愈', role: '主编', country: '', translator: '', edition: '', title: '中国哲学发展史（先秦卷）', doc_type: 'M', place: '北京', publisher: '人民出版社', year: '1983' },
+      book_page: 25, book_page_end: null, pdf_page: null,
+    },
+    {
+      label: '译著（实藤惠秀《中国人留学日本史》）',
+      meta: { author: '实藤惠秀', role: '', country: '日', translator: '谭汝谦、林启彦', edition: '', title: '中国人留学日本史', doc_type: 'M', place: '香港', publisher: '中文大学出版社', year: '1982' },
+      book_page: 11, book_page_end: 12, pdf_page: null,
+    },
+    {
+      label: '带版次（黄仁宇《万历十五年》第2版）',
+      meta: { author: '黄仁宇', role: '著', country: '', translator: '', edition: '2', title: '万历十五年', doc_type: 'M', place: '北京', publisher: '中华书局', year: '2007' },
+      book_page: 1, book_page_end: null, pdf_page: null,
+    },
+  ];
+
+  const bodyHtml = `
+    <div class="tpl-intro">
+      <div class="tpl-intro-title">📐 这是什么</div>
+      <div class="tpl-intro-body">
+        在下面的"模板"框里写引文长什么样。<strong>把作者、书名等可变部分写成
+        <span class="tpl-token tpl-token-req tpl-token--demo">作者</span>
+        <span class="tpl-token tpl-token-req tpl-token--demo">书名</span>
+        这样的占位</strong>，运行时会被每本书的元数据替换。
+        其他字符（点号、冒号、《》、年、第…页 等）<strong>原样输出</strong>。
+      </div>
+      <div class="tpl-intro-example">
+        <span class="tpl-intro-tag">模板</span>
+        <span class="tpl-intro-tpl">
+          <span class="tpl-token tpl-token-req tpl-token--demo">作者</span>.
+          <span class="tpl-token tpl-token-req tpl-token--demo">书名</span>[<span class="tpl-token tpl-token-req tpl-token--demo">文献类型</span>].
+          <span class="tpl-token tpl-token-req tpl-token--demo">出版地</span>:
+          <span class="tpl-token tpl-token-req tpl-token--demo">出版社</span>,
+          <span class="tpl-token tpl-token-req tpl-token--demo">出版年</span>:
+          <span class="tpl-token tpl-token-req tpl-token--demo">页码</span>.
+        </span>
+        <span class="tpl-intro-tag tpl-intro-tag--out">输出</span>
+        <span class="tpl-intro-rendered">任继愈. 中国哲学发展史[M]. 北京: 人民出版社, 1983: 25.</span>
+      </div>
+      <div class="tpl-intro-hints">
+        <button class="btn-tiny" id="tpl-fill-gbt" type="button">↩ 用 GB/T 7714 模板填充</button>
+        <button class="btn-tiny" id="tpl-fill-humanities" type="button">↩ 用历史研究模板填充</button>
+        <button class="btn-tiny" id="tpl-fill-law" type="button">↩ 用法学手册模板填充</button>
+      </div>
+    </div>
+
+    <label>名称 <span class="hint-inline">（自己起一个，方便日后选择）</span></label>
+    <input id="tpl-name" value="${escapeHtml(initial.name)}" placeholder="例：我的人文社科改良版" />
+
+    <label>模板 <span class="hint-inline">（点击或拖入下方"字段"按钮添加占位；普通文字直接键盘输入；删除占位按一次 Backspace 即可）</span></label>
+    <div id="tpl-template" class="tpl-editor" contenteditable="true" spellcheck="false" data-placeholder="点下方"作者""书名"等按钮开始，或者拖到这里"></div>
+
+    <div class="tpl-section">
+      <div class="tpl-section-head">
+        <span class="tpl-section-title">点击插入</span>
+        <span class="tpl-section-hint">把光标放到模板里要插入的位置，再点下方按钮</span>
+      </div>
+      <div class="tpl-section-head" style="margin-top:6px;">
+        <span class="tpl-section-hint"><strong style="color:#3730a3;">必填字段</strong>（如这本书没填该字段，渲染时显示"〔X待补〕"提醒补上）</span>
+      </div>
+      <div class="tpl-chip-row">${requiredButtonsHtml}</div>
+      <div class="tpl-section-head" style="margin-top:8px;">
+        <span class="tpl-section-hint"><strong style="color:#047857;">可选段</strong>（如这本书没填该字段，整段连同周围的标点一起消失，<em>不会</em>显示占位）</span>
+      </div>
+      <div class="tpl-chip-row">${optionalButtonsHtml}</div>
+    </div>
+
+    <div class="tpl-preview-section">
+      <div class="tpl-section-head">
+        <span class="tpl-section-title">实时预览</span>
+        <select id="tpl-sample" class="tpl-sample-select">
+          ${sampleBooks.map((s, i) => `<option value="${i}">${escapeHtml(s.label)}</option>`).join('')}
+        </select>
+      </div>
+      <div class="tpl-section-head" style="margin-top:2px;">
+        <span class="tpl-section-hint">用左边样书数据渲染你的模板；切换样书可以试不同字段组合（带译者 / 带版次 等）</span>
+      </div>
+      <div id="tpl-preview" class="tpl-preview">（待渲染）</div>
+      <div id="tpl-error" class="tpl-error hidden"></div>
+    </div>
+  `;
+
+  const titles = {
+    'edit': '编辑格式',
+    'clone': '基于此新建',
+    'create-blank': '新建格式',
+  };
+
+  // —— DOM ↔ 模板字符串相互转换 ——
+
+  // 取字段中文标签
+  function fieldLabel(key) {
+    const d = FIELD_DEFS.find(x => x.key === key);
+    return d ? d.label : key;
+  }
+
+  // 造一个"必填"chip 节点（蓝紫色）
+  function makeReqChip(field) {
+    const span = document.createElement('span');
+    span.className = 'tpl-token tpl-token-req';
+    span.contentEditable = 'false';
+    span.dataset.kind = 'req';
+    span.dataset.field = field;
+    span.title = `{${field}}`;
+    span.textContent = fieldLabel(field);
+    return span;
+  }
+
+  // 造一个"可选段"chip 节点（绿色），visually: [prefix(可编辑)] [?字段 pill] [suffix(可编辑)]
+  // 外层 contenteditable=false → 整段是原子单元；
+  // 内部 .opt-lit 重新 contenteditable=true → 用户可直接修改 prefix/suffix；
+  // 整段删除：把光标移到 chip 外面（紧贴它之后）按 Backspace，
+  //          浏览器原生 contenteditable 会把它视为一个原子单元一次删除（和蓝色 chip 一致）。
+  function makeOptChip(field, prefix, suffix) {
+    const span = document.createElement('span');
+    span.className = 'tpl-token tpl-token-opt';
+    span.contentEditable = 'false';
+    span.dataset.kind = 'opt';
+    span.dataset.field = field;
+    span.title = `可选段 — 这本书该字段空时整段消失（含两侧文字）`;
+    // prefix（可编辑），始终渲染（哪怕空）
+    const pre = document.createElement('span');
+    pre.className = 'opt-lit';
+    pre.dataset.role = 'prefix';
+    pre.contentEditable = 'true';
+    pre.spellcheck = false;
+    pre.textContent = prefix || '';
+    span.appendChild(pre);
+    // ?字段 主体（不可编辑）
+    const main = document.createElement('span');
+    main.className = 'opt-main';
+    main.contentEditable = 'false';
+    main.textContent = '?' + fieldLabel(field);
+    span.appendChild(main);
+    // suffix（可编辑）
+    const suf = document.createElement('span');
+    suf.className = 'opt-lit';
+    suf.dataset.role = 'suffix';
+    suf.contentEditable = 'true';
+    suf.spellcheck = false;
+    suf.textContent = suffix || '';
+    span.appendChild(suf);
+    return span;
+  }
+
+  // 把模板字符串渲染到 contenteditable 容器
+  function templateToDom(template, container) {
+    container.textContent = '';
+    if (!template) return;
+    let tokens;
+    try {
+      tokens = window.xdFormats.parseTemplate(template);
+    } catch (_) {
+      // 解析失败 → 全当字面，让用户看到自己写的什么
+      container.appendChild(document.createTextNode(template));
+      return;
+    }
+    for (const tok of tokens) {
+      if (tok.kind === 'lit') {
+        container.appendChild(document.createTextNode(tok.text));
+      } else if (tok.kind === 'req') {
+        container.appendChild(makeReqChip(tok.field));
+      } else {
+        container.appendChild(makeOptChip(tok.field, tok.prefix, tok.suffix));
+      }
+    }
+  }
+
+  // 把 contenteditable 容器序列化回模板字符串
+  function domToTemplate(rootEl) {
+    const parts = [];
+    function walk(node) {
+      for (const child of node.childNodes) {
+        if (child.nodeType === Node.TEXT_NODE) {
+          parts.push(child.textContent);
+        } else if (child.nodeType === Node.ELEMENT_NODE) {
+          if (child.classList && child.classList.contains('tpl-token')) {
+            if (child.dataset.kind === 'req') {
+              parts.push(`{${child.dataset.field}}`);
+            } else {
+              // 从可编辑的 .opt-lit[data-role=prefix/suffix] 子节点读最新值
+              const preEl = child.querySelector(':scope > .opt-lit[data-role="prefix"]');
+              const sufEl = child.querySelector(':scope > .opt-lit[data-role="suffix"]');
+              const prefix = preEl ? preEl.textContent : '';
+              const suffix = sufEl ? sufEl.textContent : '';
+              parts.push(`{?${child.dataset.field} ${prefix}{}${suffix}}`);
+            }
+          } else if (child.tagName === 'BR') {
+            parts.push('\n');
+          } else if (child.tagName === 'DIV' || child.tagName === 'P') {
+            // contenteditable 在按 Enter 时可能注入 <div> 包裹的行
+            if (parts.length && !parts[parts.length - 1].endsWith('\n')) parts.push('\n');
+            walk(child);
+          } else {
+            walk(child);
+          }
+        }
+      }
+    }
+    walk(rootEl);
+    return parts.join('');
+  }
+
+  // 在当前光标位置插入节点（contenteditable 内）
+  function insertNodeAtCaret(rootEl, node) {
+    const sel = window.getSelection();
+    if (sel.rangeCount && rootEl.contains(sel.anchorNode)) {
+      const range = sel.getRangeAt(0);
+      range.deleteContents();
+      range.insertNode(node);
+      // 光标移到节点之后；插入一个零宽间隔避免光标卡在 chip 内部
+      const after = document.createRange();
+      after.setStartAfter(node);
+      after.setEndAfter(node);
+      sel.removeAllRanges();
+      sel.addRange(after);
+    } else {
+      rootEl.appendChild(node);
+      const range = document.createRange();
+      range.selectNodeContents(rootEl);
+      range.collapse(false);
+      sel.removeAllRanges();
+      sel.addRange(range);
+    }
+    rootEl.focus();
+  }
+
+  // 在指定屏幕坐标处插入节点（drop 时用）
+  function insertNodeAtPoint(rootEl, node, clientX, clientY) {
+    let range = null;
+    try {
+      if (document.caretRangeFromPoint) {
+        range = document.caretRangeFromPoint(clientX, clientY);
+      } else if (document.caretPositionFromPoint) {
+        const cp = document.caretPositionFromPoint(clientX, clientY);
+        if (cp) {
+          range = document.createRange();
+          range.setStart(cp.offsetNode, cp.offset);
+          range.collapse(true);
+        }
+      }
+    } catch (_) {}
+    if (range && rootEl.contains(range.startContainer)) {
+      range.insertNode(node);
+      const after = document.createRange();
+      after.setStartAfter(node);
+      after.setEndAfter(node);
+      const sel = window.getSelection();
+      sel.removeAllRanges();
+      sel.addRange(after);
+    } else {
+      rootEl.appendChild(node);
+    }
+    rootEl.focus();
+  }
+
+  // 用 setTimeout 在 modal 打开后绑定动态事件（实时预览 / 插入按钮）
+  const setupListeners = () => {
+    const taEl = document.getElementById('tpl-template');
+    const sampleEl = document.getElementById('tpl-sample');
+    const previewEl = document.getElementById('tpl-preview');
+    const errorEl = document.getElementById('tpl-error');
+    if (!taEl) return;  // modal hasn't rendered yet — bail and let next setupListeners try
+
+    // 初始填入模板
+    templateToDom(initial.template, taEl);
+    updatePlaceholder();
+
+    function updatePlaceholder() {
+      if (taEl.textContent.trim() === '' && !taEl.querySelector('.tpl-token')) {
+        taEl.classList.add('is-empty');
+      } else {
+        taEl.classList.remove('is-empty');
+      }
+    }
+
+    function refresh() {
+      updatePlaceholder();
+      const tpl = domToTemplate(taEl);
+      const sampleIdx = parseInt(sampleEl.value, 10) || 0;
+      const sb = sampleBooks[sampleIdx];
+      try {
+        const out = window.xdFormats.renderCitation({
+          template: tpl, meta: sb.meta,
+          book_page: sb.book_page, book_page_end: sb.book_page_end, pdf_page: sb.pdf_page,
+        });
+        previewEl.textContent = out;
+        errorEl.classList.add('hidden');
+        taEl.classList.remove('error');
+      } catch (err) {
+        previewEl.textContent = '（无法预览 — 见下方错误）';
+        errorEl.textContent = `模板语法错误：${err.message}`;
+        errorEl.classList.remove('hidden');
+        taEl.classList.add('error');
+      }
+    }
+
+    taEl.addEventListener('input', refresh);
+    sampleEl.addEventListener('change', refresh);
+
+    // Backspace 兜底：当光标"紧贴 chip 之后"按 Backspace，删整段 chip。
+    //
+    // 为啥要兜底？理论上 contenteditable=false 的元素左侧按 Backspace
+    // 浏览器原生就会整段删（蓝色 chip 就是这么删的）。但绿色 chip 内部
+    // 嵌套了 contenteditable=true 的 .opt-lit，焦点容易"被吸"进去，
+    // 原生路径不稳。
+    //
+    // 守卫：光标如果就在某个 chip 内部（编辑 prefix/suffix），不动 — 让
+    // Backspace 按正常字符删。
+    taEl.addEventListener('keydown', (e) => {
+      if (e.key !== 'Backspace') return;
+      const sel = window.getSelection();
+      if (!sel.rangeCount || !sel.isCollapsed) return;
+      const range = sel.getRangeAt(0);
+      const node = range.startContainer;
+      const offset = range.startOffset;
+
+      // 光标在 chip 内部 → 不拦截
+      const startEl = node.nodeType === Node.ELEMENT_NODE ? node : node.parentElement;
+      if (startEl && startEl.closest && startEl.closest('.tpl-token')) return;
+
+      // 找紧贴在 caret 之前的兄弟节点是不是 chip
+      let prevChip = null;
+      if (node.nodeType === Node.TEXT_NODE && offset === 0) {
+        let p = node.previousSibling;
+        while (p && p.nodeType === Node.TEXT_NODE && p.textContent === '') {
+          p = p.previousSibling;
+        }
+        if (p && p.nodeType === Node.ELEMENT_NODE && p.classList && p.classList.contains('tpl-token')) {
+          prevChip = p;
+        }
+      } else if (node.nodeType === Node.ELEMENT_NODE && offset > 0) {
+        const c = node.childNodes[offset - 1];
+        if (c && c.nodeType === Node.ELEMENT_NODE && c.classList && c.classList.contains('tpl-token')) {
+          prevChip = c;
+        }
+      }
+
+      if (prevChip && taEl.contains(prevChip)) {
+        e.preventDefault();
+        prevChip.remove();
+        refresh();
+      }
+    });
+
+    // 阻止 contenteditable 默认的富文本粘贴（只保留纯文本）
+    taEl.addEventListener('paste', (e) => {
+      e.preventDefault();
+      const text = (e.clipboardData || window.clipboardData).getData('text/plain');
+      document.execCommand('insertText', false, text);
+    });
+
+    // 按钮：点击 → 插入到光标处；拖拽 → 携带 kind/field/prefix/suffix；drop 时插入到鼠标位置
+    document.querySelectorAll('.tpl-insert-btn').forEach(b => {
+      function buildChip() {
+        if (b.dataset.kind === 'req') {
+          return makeReqChip(b.dataset.field);
+        }
+        return makeOptChip(b.dataset.field, b.dataset.prefix || '', b.dataset.suffix || '');
+      }
+      // 点击插入
+      b.addEventListener('click', () => {
+        insertNodeAtCaret(taEl, buildChip());
+        refresh();
+      });
+      // 拖拽：dataTransfer 用自定义 mime 携带元数据
+      b.addEventListener('dragstart', (e) => {
+        const meta = JSON.stringify({
+          kind: b.dataset.kind,
+          field: b.dataset.field,
+          prefix: b.dataset.prefix || '',
+          suffix: b.dataset.suffix || '',
+        });
+        e.dataTransfer.setData('application/x-xundian-chip', meta);
+        // text/plain 兜底，万一掉到其它能接收文本的地方
+        const fallback = b.dataset.kind === 'req'
+          ? `{${b.dataset.field}}`
+          : `{?${b.dataset.field} ${b.dataset.prefix || ''}{}${b.dataset.suffix || ''}}`;
+        e.dataTransfer.setData('text/plain', fallback);
+        e.dataTransfer.effectAllowed = 'copy';
+        b.classList.add('dragging');
+      });
+      b.addEventListener('dragend', () => {
+        b.classList.remove('dragging');
+      });
+    });
+
+    // contenteditable 接受 drop
+    taEl.addEventListener('dragover', (e) => {
+      e.preventDefault();
+      e.dataTransfer.dropEffect = 'copy';
+      taEl.classList.add('drop-target');
+    });
+    taEl.addEventListener('dragleave', () => {
+      taEl.classList.remove('drop-target');
+    });
+    taEl.addEventListener('drop', (e) => {
+      e.preventDefault();
+      taEl.classList.remove('drop-target');
+      const metaStr = e.dataTransfer.getData('application/x-xundian-chip');
+      if (metaStr) {
+        try {
+          const meta = JSON.parse(metaStr);
+          const node = meta.kind === 'req'
+            ? makeReqChip(meta.field)
+            : makeOptChip(meta.field, meta.prefix, meta.suffix);
+          insertNodeAtPoint(taEl, node, e.clientX, e.clientY);
+        } catch (err) {
+          console.error(err);
+        }
+      } else {
+        // 兜底：纯文本 drop
+        const text = e.dataTransfer.getData('text/plain') || '';
+        if (text) {
+          const textNode = document.createTextNode(text);
+          insertNodeAtPoint(taEl, textNode, e.clientX, e.clientY);
+        }
+      }
+      refresh();
+    });
+
+    // "一键填充内置模板"按钮 — 帮新用户冷启动
+    const fillBtns = [
+      ['tpl-fill-gbt', 'gbt7714'],
+      ['tpl-fill-humanities', 'humanities_2024'],
+      ['tpl-fill-law', 'law_2025'],
+    ];
+    for (const [btnId, fmtId] of fillBtns) {
+      const btn = document.getElementById(btnId);
+      if (!btn) continue;
+      btn.addEventListener('click', () => {
+        const tpl = window.xdFormats.getBuiltinTemplate(fmtId);
+        if (tpl) {
+          templateToDom(tpl, taEl);
+          taEl.focus();
+          refresh();
+        }
+      });
+    }
+    refresh();
+  };
+
+  // 用 setTimeout 让 showModal 先把 DOM 注入，然后绑事件
+  setTimeout(setupListeners, 0);
+
+  const result = await showModal({
+    title: titles[options.mode] || '编辑格式',
+    bodyHtml,
+    onOk: async () => {
+      const name = (document.getElementById('tpl-name').value || '').trim();
+      const editorEl = document.getElementById('tpl-template');
+      const template = domToTemplate(editorEl);
+      if (!name) { alert('请填名称'); return false; }
+      try {
+        window.xdFormats.parseTemplate(template);
+      } catch (err) {
+        alert('模板语法错误：' + err.message);
+        return false;
+      }
+      return { name, template, parent_id: initial.parent_id || null };
+    },
+  });
+
+  return result || null;
+}
+
+async function _resolveActiveFormatPayload() {
+  const id = window.xdFormats.getActiveFormatId();
+  const fmt = await window.xdFormats.getFormatById(id);
+  // 内置且未修改 → template 留 null（Python 端能查到 id）
+  // 用户 / 已修改的内置 → template 也传过去
+  if (!fmt) return { id, template: null };
+  if (fmt.category === 'builtin' && !window.xdFormats.isModifiedBuiltin(fmt)) {
+    return { id, template: null };
+  }
+  return { id, template: fmt.template };
+}
+
+async function populateGlobalFormatSelectors() {
+  const all = await window.xdFormats.listAllFormats();
+  const builtins = all.filter(f => f.category === 'builtin');
+  const users = all.filter(f => f.category === 'user');
+
+  let optsHtml = '<optgroup label="内置">';
+  optsHtml += builtins.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}${window.xdFormats.isModifiedBuiltin(f) ? ' ●已修改' : ''}</option>`).join('');
+  optsHtml += '</optgroup>';
+  if (users.length) {
+    optsHtml += '<optgroup label="我的">';
+    optsHtml += users.map(f => `<option value="${escapeHtml(f.id)}">${escapeHtml(f.name)}</option>`).join('');
+    optsHtml += '</optgroup>';
+  }
+  optsHtml += '<optgroup label="操作"><option value="__manage__">＋ 管理格式…</option></optgroup>';
+
+  for (const selId of ['lookup-format-select', 'scan-format-select']) {
+    const sel = document.getElementById(selId);
+    if (!sel) continue;
+    sel.innerHTML = optsHtml;
+    const active = window.xdFormats.getActiveFormatId();
+    sel.value = active;
+    sel.onchange = (e) => {
+      if (e.target.value === '__manage__') {
+        // 切到管理 tab
+        const tab = document.querySelector('.tab-btn[data-tab="formats"]');
+        if (tab) tab.click();
+        e.target.value = active;
+        return;
+      }
+      window.xdFormats.setActiveFormatId(e.target.value);
+      for (const otherId of ['lookup-format-select', 'scan-format-select']) {
+        if (otherId !== selId) {
+          const other = document.getElementById(otherId);
+          if (other) other.value = e.target.value;
+        }
+      }
+      rerenderAllCitations();
+    };
+  }
+}
+
+// 格式管理 tab 的事件代理
+document.addEventListener('click', async (e) => {
+  // 顶部三个按钮
+  if (e.target && e.target.id === 'btn-fmt-new-blank') {
+    const r = await openTemplateEditor({ mode: 'create-blank', initialFormat: { name: '', template: '' } });
+    if (r) await saveNewUserFormat(r);
+    await renderFormatList();
+    await populateGlobalFormatSelectors();
+    return;
+  }
+  if (e.target && e.target.id === 'btn-fmt-infer') {
+    await openInferFlow();
+    return;
+  }
+  if (e.target && e.target.id === 'btn-fmt-import') {
+    document.getElementById('fmt-import-file').click();
+    return;
+  }
+  // 列表项里的按钮
+  const action = e.target && e.target.dataset && e.target.dataset.action;
+  if (!action) return;
+  const item = e.target.closest('.fmt-item');
+  if (!item) return;
+  const fmtId = item.dataset.fmtId;
+  if (action === 'edit') return handleFormatEdit(fmtId);
+  if (action === 'clone') return handleFormatClone(fmtId);
+  if (action === 'reset') return handleFormatReset(fmtId);
+  if (action === 'delete') return handleFormatDelete(fmtId);
+  if (action === 'export') return handleFormatExport(fmtId);
+});
+
+
+// 导入 JSON 的文件选择监听（Task 4.4）
+document.addEventListener('change', async (e) => {
+  if (e.target && e.target.id === 'fmt-import-file') {
+    const file = e.target.files[0];
+    if (!file) return;
+    e.target.value = '';  // 允许再次选同名文件
+    let parsed;
+    try {
+      const text = await file.text();
+      parsed = JSON.parse(text);
+    } catch (err) {
+      alert('JSON 解析失败：' + err.message);
+      return;
+    }
+    const valid = window.xdFormats.validateImportedFormat(parsed);
+    if (!valid.ok) {
+      alert('导入失败：' + valid.error);
+      return;
+    }
+    // 同名重复 → 提示
+    const all = await window.xdFormats.listAllFormats();
+    if (all.some(f => f.name === valid.name)) {
+      const choice = prompt(`已存在同名格式 "${valid.name}"。\n输入新名（直接确认则用同名 + (导入)）：`, valid.name + ' (导入)');
+      if (choice === null) return;
+      valid.name = (choice || '').trim() || (valid.name + ' (导入)');
+    }
+    await saveNewUserFormat({
+      name: valid.name,
+      template: valid.template,
+      parent_id: valid.based_on || null,
+    });
+    await renderFormatList();
+    await populateGlobalFormatSelectors();
+    alert('导入成功：' + valid.name);
+  }
+});
+
+
+async function saveNewUserFormat({ name, template, parent_id }) {
+  const id = `user_${Math.random().toString(36).slice(2, 10)}`;
+  const now = Date.now();
+  await window.db.putFormat({
+    id, name, category: 'user', template,
+    parent_id: parent_id || null,
+    created_at: now, updated_at: now,
+  });
+}
+
+
+// 样例反推 UI 流程：选参照书 → 粘贴样例 → 审阅反推结果 → 采纳 or 修一下
+async function openInferFlow() {
+  // 列出库里全字段已填的书供选作参照
+  const books = await window.dbHelpers.getBooksForUI();
+  const candidates = books.filter(b =>
+    b.author && b.author !== 'XX'
+    && b.title
+    && b.publisher && b.publisher !== 'XX出版社'
+    && b.year && b.year !== '0000'
+  );
+  if (candidates.length === 0) {
+    alert('需要至少一本元数据齐全的书做参照。请先去书架补一本（author/title/publisher/year 都不能是默认占位）。');
+    return;
+  }
+  const optsHtml = candidates.map(b => `<option value="${escapeHtml(b.file_id)}">${escapeHtml(b.author)}《${escapeHtml(b.title)}》</option>`).join('');
+
+  // 第一步：选参照书 + 粘贴样例
+  const step1 = await showModal({
+    title: '从样例反推格式（1/2）',
+    bodyHtml: `
+      <label>参照书</label>
+      <select id="infer-ref">${optsHtml}</select>
+      <label>粘贴样例（这本书在该格式下应该是什么样子）</label>
+      <textarea id="infer-sample" rows="3" placeholder="例：任继愈主编：《中国哲学发展史（先秦卷）》，北京：人民出版社，1983年，第25页。"></textarea>
+      <label>样例里出现的页码</label>
+      <input id="infer-page" type="number" value="25" />
+      <p class="hint">算法会按字段值长度倒序在样例中查找替换。"主编/译"等责任方式无法自动推为 <code>{?role}</code> 段 — 反推完用"修一下"手动加。</p>
+    `,
+    onOk: async () => {
+      const refId = document.getElementById('infer-ref').value;
+      const sample = (document.getElementById('infer-sample').value || '').trim();
+      const page = parseInt(document.getElementById('infer-page').value, 10) || 25;
+      if (!sample) { alert('请粘贴样例'); return false; }
+      const refBook = candidates.find(b => b.file_id === refId);
+      const inferred = window.xdFormats.inferTemplateFromSample({
+        refMeta: refBook, sample, refPage: page,
+      });
+      return { inferred, refBook, page };
+    },
+  });
+  if (!step1) return;
+
+  // 计算回填验证
+  const backRender = window.xdFormats.renderCitation({
+    template: step1.inferred,
+    meta: step1.refBook,
+    book_page: step1.page,
+  });
+
+  // 第二步：审阅 + 命名 + 选择"采纳"或"修一下"
+  // 由于普通 showModal 没有"extra button"，我们用 radio 选择动作
+  const step2 = await showModal({
+    title: '反推结果（2/2）',
+    bodyHtml: `
+      <label>反推出的模板</label>
+      <div class="tpl-textarea" style="background:#f6f8fa;padding:8px;white-space:pre-wrap;">${escapeHtml(step1.inferred)}</div>
+
+      <label>回填验证（用该参照书渲染上述模板）</label>
+      <div class="tpl-preview">${escapeHtml(backRender)}</div>
+
+      <label>命名（保存为新的"我的"格式）</label>
+      <input id="infer-name" placeholder="例：我的历史研究改" />
+
+      <label style="margin-top:10px;">下一步</label>
+      <label style="font-weight:normal;display:block;margin-top:4px;">
+        <input type="radio" name="infer-action" value="accept" checked />
+        ✓ 采纳并保存（直接保存上方模板）
+      </label>
+      <label style="font-weight:normal;display:block;">
+        <input type="radio" name="infer-action" value="edit" />
+        ✎ 修一下（进编辑器继续修改）
+      </label>
+    `,
+    onOk: async () => {
+      const name = (document.getElementById('infer-name').value || '').trim();
+      const action = document.querySelector('input[name="infer-action"]:checked').value;
+      if (action === 'accept' && !name) {
+        alert('请填名称');
+        return false;
+      }
+      return { action, name, template: step1.inferred };
+    },
+  });
+  if (!step2) return;
+
+  if (step2.action === 'accept') {
+    await saveNewUserFormat({ name: step2.name, template: step2.template });
+  } else if (step2.action === 'edit') {
+    const r = await openTemplateEditor({
+      mode: 'create-blank',
+      initialFormat: { name: step2.name || '', template: step2.template },
+    });
+    if (r) await saveNewUserFormat(r);
+  }
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
+}
+
+
+async function handleFormatEdit(fmtId) {
+  const fmt = await window.xdFormats.getFormatById(fmtId);
+  if (!fmt) return;
+  const r = await openTemplateEditor({ mode: 'edit', initialFormat: fmt });
+  if (!r) return;
+  const now = Date.now();
+  // 修改内置格式 → 以 builtin category 写入 IndexedDB（"已修改的内置"）
+  // 修改 user 格式 → 写入 IndexedDB
+  await window.db.putFormat({
+    id: fmt.id,
+    name: r.name,
+    category: fmt.category,
+    template: r.template,
+    parent_id: fmt.parent_id || null,
+    created_at: fmt.created_at || now,
+    updated_at: now,
+  });
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
+  rerenderAllCitations();
+}
+
+
+async function handleFormatClone(fmtId) {
+  const src = await window.xdFormats.getFormatById(fmtId);
+  if (!src) return;
+  const r = await openTemplateEditor({
+    mode: 'clone',
+    initialFormat: { name: `${src.name} 副本`, template: src.template, parent_id: src.id },
+  });
+  if (!r) return;
+  await saveNewUserFormat(r);
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
+}
+
+
+async function handleFormatReset(fmtId) {
+  if (!confirm('重置为内置默认模板？这会丢弃你对此内置格式的修改。')) return;
+  await window.db.deleteFormat(fmtId);
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
+  rerenderAllCitations();
+}
+
+
+async function handleFormatDelete(fmtId) {
+  if (!confirm('删除这个自定义格式？')) return;
+  await window.db.deleteFormat(fmtId);
+  // 如当前 active 就是它，回退默认
+  if (window.xdFormats.getActiveFormatId() === fmtId) {
+    window.xdFormats.setActiveFormatId(window.xdFormats.DEFAULT_FORMAT_ID);
+  }
+  await renderFormatList();
+  await populateGlobalFormatSelectors();
+  rerenderAllCitations();
+}
+
+
+// 任务 4.3：导出 JSON
+async function handleFormatExport(fmtId) {
+  const fmt = await window.xdFormats.getFormatById(fmtId);
+  if (!fmt) return;
+  const payload = {
+    "$schema": "xundian-cite/v1",
+    name: fmt.name,
+    template: fmt.template,
+    based_on: fmt.parent_id || null,
+    exported_at: Math.floor(Date.now() / 1000),
+  };
+  const json = JSON.stringify(payload, null, 2);
+  const blob = new Blob([json], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const safeName = fmt.name.replace(/[\\/:*?"<>|]/g, '_');
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = `${safeName}.xundian-cite.json`;
+  document.body.appendChild(a);
+  a.click();
+  document.body.removeChild(a);
+  URL.revokeObjectURL(url);
+}
+
+
+async function rerenderAllCitations() {
+  const id = window.xdFormats.getActiveFormatId();
+  const fmt = await window.xdFormats.getFormatById(id);
+  if (!fmt) return;
+  document.querySelectorAll('.fmt-chip').forEach(chip => {
+    const cardId = chip.dataset.cardId;
+    const cardData = _cardMetaMap.get(cardId);
+    if (!cardData) return;
+    let newCitation;
+    try {
+      newCitation = window.xdFormats.renderCitation({
+        template: fmt.template,
+        meta: cardData.meta,
+        book_page: cardData.book_page,
+        book_page_end: cardData.book_page_end,
+        pdf_page: cardData.pdf_page,
+      });
+    } catch (_) { return; }
+    chip.dataset.currentFmt = id;
+    chip.textContent = `📐 ${fmt.name} ▾`;
+    const textEl = document.querySelector(`.cand-citation-text[data-card-id="${cardId}"]`);
+    if (textEl) textEl.textContent = newCitation;
+  });
+}
+
 async function bootstrap() {
   // 1. 浏览器能力检查
   if (!window.fs.isSupported()) {
@@ -2866,6 +4019,9 @@ async function bootstrap() {
   // 4. 关掉启动遮罩
   $('#boot-overlay').classList.add('hidden');
   setStatus('就绪');
+
+  // 填充全局格式选择器
+  await populateGlobalFormatSelectors();
 
   // 5. 数据目录展示（在欢迎卡里）
   try {

@@ -15,11 +15,12 @@
 'use strict';
 
 const DB_NAME = 'xundian';
-const DB_VERSION = 1;
+const DB_VERSION = 2;  // 1 → 2：新增 formats store
 const STORE_BOOKS = 'books';
 const STORE_FOLDERS = 'folders';
 const STORE_CACHES = 'caches';
 const STORE_SETTINGS = 'settings';
+const STORE_FORMATS = 'formats';  // 新增
 
 const SETTINGS_KEY = 'singleton';
 
@@ -46,6 +47,10 @@ class XunDianDB {
         }
         if (!db.objectStoreNames.contains(STORE_SETTINGS)) {
           db.createObjectStore(STORE_SETTINGS, { keyPath: 'key' });
+        }
+        // v2 新增：formats store
+        if (!db.objectStoreNames.contains(STORE_FORMATS)) {
+          db.createObjectStore(STORE_FORMATS, { keyPath: 'id' });
         }
       };
       req.onsuccess = () => { this._db = req.result; resolve(this._db); };
@@ -196,6 +201,29 @@ class XunDianDB {
     const tx = await this._tx([STORE_SETTINGS], 'readwrite');
     await this._req(tx.objectStore(STORE_SETTINGS).put({ key: SETTINGS_KEY, ...settings }));
   }
+
+  // —— formats ——
+
+  async listFormats() {
+    const tx = await this._tx([STORE_FORMATS]);
+    return await this._req(tx.objectStore(STORE_FORMATS).getAll());
+  }
+
+  async getFormat(id) {
+    const tx = await this._tx([STORE_FORMATS]);
+    return await this._req(tx.objectStore(STORE_FORMATS).get(id));
+  }
+
+  async putFormat(fmt) {
+    // fmt: { id, name, category: 'builtin'|'user', template, parent_id?, created_at, updated_at }
+    const tx = await this._tx([STORE_FORMATS], 'readwrite');
+    await this._req(tx.objectStore(STORE_FORMATS).put(fmt));
+  }
+
+  async deleteFormat(id) {
+    const tx = await this._tx([STORE_FORMATS], 'readwrite');
+    await this._req(tx.objectStore(STORE_FORMATS).delete(id));
+  }
 }
 
 window.db = new XunDianDB();
@@ -228,6 +256,11 @@ window.dbHelpers = {
         place: b.place || 'XX',
         publisher: b.publisher || 'XX出版社',
         year: b.year || '0000',
+        // 新增 4 字段（默认空串，按"留空"语义）
+        role: b.role || '',
+        country: b.country || '',
+        translator: b.translator || '',
+        edition: b.edition || '',
         page_offset: b.page_offset != null ? b.page_offset : null,
         folder: b.folder || null,
         // 运行时字段
@@ -251,6 +284,11 @@ window.dbHelpers = {
         place: b.place || 'XX',
         publisher: b.publisher || 'XX出版社',
         year: b.year || '0000',
+        // 新增 4 字段
+        role: b.role || '',
+        country: b.country || '',
+        translator: b.translator || '',
+        edition: b.edition || '',
       };
     }
     return out;

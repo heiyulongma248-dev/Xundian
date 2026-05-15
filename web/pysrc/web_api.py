@@ -22,8 +22,20 @@ from .pdf_text import (
     page_from_dict,
 )
 from .matcher import match_quote, precompute_books, MatchCandidate, MatchResult
-from .citation import format_citation
+from .citation import format_citation, render_citation as _render_citation
+from .formats import get_builtin_template, DEFAULT_FORMAT_ID
 from .render_report import render_report_bytes
+
+
+def _resolve_template(format_id, template):
+    """解析模板：用户传入的 template 优先；否则 format_id 内置查；都没有 → 默认。"""
+    if template:
+        return template
+    if format_id:
+        t = get_builtin_template(format_id)
+        if t is not None:
+            return t
+    return get_builtin_template(DEFAULT_FORMAT_ID)
 
 
 # —— JS 通信辅助 ——
@@ -84,20 +96,34 @@ def _candidate_to_dict(cand: MatchCandidate) -> dict:
     }
 
 
-def _format_cand_citation(cand: MatchCandidate, meta_dict: Optional[Dict[str, dict]]) -> str:
+def _format_cand_citation(
+    cand: MatchCandidate,
+    meta_dict: Optional[Dict[str, dict]],
+    template: str,
+) -> str:
     """根据候选所在书的 meta 拼一条「出处建议」给前端候选卡片用。
     meta_dict 缺失时返回空串（前端按"没有 citation"渲染）。"""
     if meta_dict is None:
         return ""
     m = meta_dict.get(cand.book_file) or {}
-    return format_citation(
-        author=m.get("author", "XX"),
-        title=m.get("title", cand.book_file),
-        doc_type=m.get("doc_type", "M"),
-        place=m.get("place", "XX"),
-        publisher=m.get("publisher", "XX出版社"),
-        year=m.get("year", "0000"),
+    # 注意：补齐渲染所需字段（含新 4 字段），缺失置空
+    meta = {
+        "author": m.get("author", "XX"),
+        "role": m.get("role", ""),
+        "country": m.get("country", ""),
+        "translator": m.get("translator", ""),
+        "edition": m.get("edition", ""),
+        "title": m.get("title", cand.book_file),
+        "doc_type": m.get("doc_type", "M"),
+        "place": m.get("place", "XX"),
+        "publisher": m.get("publisher", "XX出版社"),
+        "year": m.get("year", "0000"),
+    }
+    return _render_citation(
+        template=template,
+        meta=meta,
         book_page=cand.book_page,
+        book_page_end=cand.book_page_end,
         pdf_page=cand.pdf_page,
     )
 
@@ -108,6 +134,7 @@ def _quote_result_to_dict(
     citation: str,
     threshold: float,
     meta_dict: Optional[Dict[str, dict]] = None,
+    template: str = "",
 ) -> dict:
     if not result.candidates:
         status = "miss"
@@ -120,7 +147,7 @@ def _quote_result_to_dict(
     cand_dicts = []
     for c in result.candidates:
         d = _candidate_to_dict(c)
-        d["citation"] = _format_cand_citation(c, meta_dict)
+        d["citation"] = _format_cand_citation(c, meta_dict, template)
         cand_dicts.append(d)
     return {
         "quote_id": quote.quote_id,
@@ -235,13 +262,24 @@ class Api:
 
     # —— 文档扫描（流式） ——
 
-    async def scan_document(self, docx_bytes, books_data, books_meta, docx_name: str = ""):
+    async def scan_document(
+        self, docx_bytes, books_data, books_meta,
+        docx_name: str = "",
+        format_id: Optional[str] = None,
+        template: Optional[str] = None,
+    ):
         """
         docx_bytes: Uint8Array
         books_data: {file_id: [page_dict, ...]} — 已经解析过的书目（JS 从 IndexedDB 取出）
         books_meta: {file_id: {author, title, doc_type, place, publisher, year}}
         docx_name: 仅用于事件显示
+
+        新增参数：
+          format_id  — 内置格式 id（"gbt7714" / "humanities_2024" / "law_2025"）
+          template   — 用户格式时由前端从 IndexedDB 取出后传过来；优先级高于 format_id
+        都为 None 时回退默认 GB/T 7714。
         """
+        resolved_template = _resolve_template(format_id, template)
         _emit("scan_start", docx=docx_name or "document.docx")
 
         # 阶段 0：抽引文
@@ -311,19 +349,30 @@ class Api:
                 citation = "待人工确认"
             else:
                 meta = meta_dict_clean.get(mr.best.book_file, {})
-                citation = format_citation(
-                    author=meta.get("author", "XX"),
-                    title=meta.get("title", mr.best.book_file),
-                    doc_type=meta.get("doc_type", "M"),
-                    place=meta.get("place", "XX"),
-                    publisher=meta.get("publisher", "XX出版社"),
-                    year=meta.get("year", "0000"),
+                meta_full = {
+                    "author": meta.get("author", "XX"),
+                    "role": meta.get("role", ""),
+                    "country": meta.get("country", ""),
+                    "translator": meta.get("translator", ""),
+                    "edition": meta.get("edition", ""),
+                    "title": meta.get("title", mr.best.book_file),
+                    "doc_type": meta.get("doc_type", "M"),
+                    "place": meta.get("place", "XX"),
+                    "publisher": meta.get("publisher", "XX出版社"),
+                    "year": meta.get("year", "0000"),
+                }
+                citation = _render_citation(
+                    template=resolved_template,
+                    meta=meta_full,
                     book_page=mr.best.book_page,
+                    book_page_end=mr.best.book_page_end,
                     pdf_page=mr.best.pdf_page,
                 )
             citations_for_export.append(citation)
 
-            result_dict = _quote_result_to_dict(q, mr, citation, threshold, meta_dict_clean)
+            result_dict = _quote_result_to_dict(
+                q, mr, citation, threshold, meta_dict_clean, resolved_template,
+            )
             results.append(result_dict)
 
             if result_dict["status"] == "hit":
@@ -371,11 +420,16 @@ class Api:
 
     # —— 单句查询 ——
 
-    def lookup_quote(self, quote: str, context_before: str, context_after: str,
-                     books_data, books_meta):
+    def lookup_quote(
+        self, quote: str, context_before: str, context_after: str,
+        books_data, books_meta,
+        format_id: Optional[str] = None,
+        template: Optional[str] = None,
+    ):
         if not quote or not str(quote).strip():
             raise ValueError("引文不能为空")
         text = str(quote).strip()
+        resolved_template = _resolve_template(format_id, template)
 
         books_pages = _restore_books_pages(books_data)
         meta_dict = _to_py(books_meta) or {}
@@ -405,14 +459,23 @@ class Api:
             citation = "待人工确认"
         else:
             meta = meta_dict_clean.get(mr.best.book_file, {})
-            citation = format_citation(
-                author=meta.get("author", "XX"),
-                title=meta.get("title", mr.best.book_file),
-                doc_type=meta.get("doc_type", "M"),
-                place=meta.get("place", "XX"),
-                publisher=meta.get("publisher", "XX出版社"),
-                year=meta.get("year", "0000"),
+            meta_full = {
+                "author": meta.get("author", "XX"),
+                "role": meta.get("role", ""),
+                "country": meta.get("country", ""),
+                "translator": meta.get("translator", ""),
+                "edition": meta.get("edition", ""),
+                "title": meta.get("title", mr.best.book_file),
+                "doc_type": meta.get("doc_type", "M"),
+                "place": meta.get("place", "XX"),
+                "publisher": meta.get("publisher", "XX出版社"),
+                "year": meta.get("year", "0000"),
+            }
+            citation = _render_citation(
+                template=resolved_template,
+                meta=meta_full,
                 book_page=mr.best.book_page,
+                book_page_end=mr.best.book_page_end,
                 pdf_page=mr.best.pdf_page,
             )
 
@@ -425,18 +488,51 @@ class Api:
             char_start=0,
             char_end=len(text),
         )
-        return {"quote": _quote_result_to_dict(fake, mr, citation, threshold, meta_dict_clean)}
+        return {"quote": _quote_result_to_dict(
+            fake, mr, citation, threshold, meta_dict_clean, resolved_template,
+        )}
 
     # —— 导出核对表 ——
 
-    def export_report_bytes(self):
+    def export_report_bytes(
+        self,
+        format_id: Optional[str] = None,
+        template: Optional[str] = None,
+    ):
         if self._last_scan is None:
             raise RuntimeError("还没扫描过任何文档；请先在「文档扫描」中扫描一次。")
         s = self._last_scan
+        resolved_template = _resolve_template(format_id, template)
+        # 用当前全局格式重新渲染 citations（而不是用扫描时缓存的 s["citations"]）
+        new_citations: List[str] = []
+        for q, mr in zip(s["quotes"], s["matches"]):
+            if mr.best is None:
+                new_citations.append("待人工确认")
+                continue
+            meta = s["meta_dict"].get(mr.best.book_file, {}) or {}
+            meta_full = {
+                "author": meta.get("author", "XX"),
+                "role": meta.get("role", ""),
+                "country": meta.get("country", ""),
+                "translator": meta.get("translator", ""),
+                "edition": meta.get("edition", ""),
+                "title": meta.get("title", mr.best.book_file),
+                "doc_type": meta.get("doc_type", "M"),
+                "place": meta.get("place", "XX"),
+                "publisher": meta.get("publisher", "XX出版社"),
+                "year": meta.get("year", "0000"),
+            }
+            new_citations.append(_render_citation(
+                template=resolved_template,
+                meta=meta_full,
+                book_page=mr.best.book_page,
+                book_page_end=mr.best.book_page_end,
+                pdf_page=mr.best.pdf_page,
+            ))
         data = render_report_bytes(
             quotes=s["quotes"],
             matches=s["matches"],
-            citations=s["citations"],
+            citations=new_citations,
             book_meta=s["meta_dict"],
             threshold=s["threshold"],
             books_pages=s["books_pages"],

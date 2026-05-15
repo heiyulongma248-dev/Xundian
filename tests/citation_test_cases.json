@@ -1,0 +1,75 @@
+{
+  "$comment": "Python 和 JS 端共用的引用渲染测试用例。两端 render 函数喂同样的输入必须出同样的输出。",
+  "cases": [
+    {
+      "name": "GB/T 7714 全字段",
+      "template": "{author}. {title}[{doc_type}]. {place}: {publisher}, {year}: {page}.",
+      "meta": {"author": "胡适", "title": "胡适日记全编", "doc_type": "M", "place": "合肥", "publisher": "安徽教育出版社", "year": "2001"},
+      "book_page": 25, "book_page_end": null, "pdf_page": null,
+      "expected": "胡适. 胡适日记全编[M]. 合肥: 安徽教育出版社, 2001: 25."
+    },
+    {
+      "name": "GB/T 7714 跨页",
+      "template": "{author}. {title}[{doc_type}]. {place}: {publisher}, {year}: {page}.",
+      "meta": {"author": "胡适", "title": "胡适日记全编", "doc_type": "M", "place": "合肥", "publisher": "安徽教育出版社", "year": "2001"},
+      "book_page": 11, "book_page_end": 12, "pdf_page": null,
+      "expected": "胡适. 胡适日记全编[M]. 合肥: 安徽教育出版社, 2001: 11-12."
+    },
+    {
+      "name": "历史研究体例 主编+全字段",
+      "template": "{?country [{}]}{author}{?role {}}：《{title}》，{?translator {}译，}{place}：{publisher}，{year}年，第{page}页。",
+      "meta": {"author": "任继愈", "role": "主编", "country": "", "translator": "", "title": "中国哲学发展史（先秦卷）", "place": "北京", "publisher": "人民出版社", "year": "1983"},
+      "book_page": 25, "book_page_end": null, "pdf_page": null,
+      "expected": "任继愈主编：《中国哲学发展史（先秦卷）》，北京：人民出版社，1983年，第25页。"
+    },
+    {
+      "name": "历史研究体例 著（自动省略）",
+      "template": "{?country [{}]}{author}{?role {}}：《{title}》，{?translator {}译，}{place}：{publisher}，{year}年，第{page}页。",
+      "meta": {"author": "赵景深", "role": "著", "country": "", "translator": "", "title": "文坛忆旧", "place": "上海", "publisher": "北新书局", "year": "1948"},
+      "book_page": 43, "book_page_end": null, "pdf_page": null,
+      "expected": "赵景深：《文坛忆旧》，上海：北新书局，1948年，第43页。"
+    },
+    {
+      "name": "历史研究体例 译著（国别+译者）",
+      "template": "{?country [{}]}{author}{?role {}}：《{title}》，{?translator {}译，}{place}：{publisher}，{year}年，第{page}页。",
+      "meta": {"author": "实藤惠秀", "role": "", "country": "日", "translator": "谭汝谦、林启彦", "title": "中国人留学日本史", "place": "香港", "publisher": "中文大学出版社", "year": "1982"},
+      "book_page": 11, "book_page_end": 12, "pdf_page": null,
+      "expected": "[日]实藤惠秀：《中国人留学日本史》，谭汝谦、林启彦译，香港：中文大学出版社，1982年，第11-12页。"
+    },
+    {
+      "name": "法学手册 2025 主编+全字段",
+      "template": "{?country [{}]}{author}{?role {}}：《{title}》{?edition （第{}版）}，{?translator {}译，}{publisher}{year}年版，第{page}页。",
+      "meta": {"author": "任继愈", "role": "主编", "country": "", "translator": "", "edition": "", "title": "中国哲学发展史（先秦卷）", "publisher": "人民出版社", "year": "1983"},
+      "book_page": 25, "book_page_end": null, "pdf_page": null,
+      "expected": "任继愈主编：《中国哲学发展史（先秦卷）》，人民出版社1983年版，第25页。"
+    },
+    {
+      "name": "法学手册 2025 带版次",
+      "template": "{?country [{}]}{author}{?role {}}：《{title}》{?edition （第{}版）}，{?translator {}译，}{publisher}{year}年版，第{page}页。",
+      "meta": {"author": "黄仁宇", "role": "著", "country": "", "translator": "", "edition": "2", "title": "万历十五年", "publisher": "中华书局", "year": "2007"},
+      "book_page": 1, "book_page_end": null, "pdf_page": null,
+      "expected": "黄仁宇：《万历十五年》（第2版），中华书局2007年版，第1页。"
+    },
+    {
+      "name": "必填字段缺失出占位",
+      "template": "{author}. {title}[{doc_type}]. {place}: {publisher}, {year}: {page}.",
+      "meta": {"author": "", "title": "", "doc_type": "M", "place": "", "publisher": "", "year": ""},
+      "book_page": 7, "book_page_end": null, "pdf_page": null,
+      "expected": "〔作者待补〕. 〔书名待补〕[M]. 〔出版地待补〕: 〔出版社待补〕, 〔出版年待补〕: 7."
+    },
+    {
+      "name": "book_page 缺 + pdf_page 兜底",
+      "template": "{author}. {title}[{doc_type}]. {place}: {publisher}, {year}: {page}.",
+      "meta": {"author": "胡适", "title": "胡适日记", "doc_type": "M", "place": "合肥", "publisher": "安徽教育出版社", "year": "2001"},
+      "book_page": null, "book_page_end": null, "pdf_page": 42,
+      "expected": "胡适. 胡适日记[M]. 合肥: 安徽教育出版社, 2001: PDF第42页（书内页码待标定）."
+    },
+    {
+      "name": "页码全空",
+      "template": "{author}. {title}[{doc_type}]. {place}: {publisher}, {year}: {page}.",
+      "meta": {"author": "胡适", "title": "胡适日记", "doc_type": "M", "place": "合肥", "publisher": "安徽教育出版社", "year": "2001"},
+      "book_page": null, "book_page_end": null, "pdf_page": null,
+      "expected": "胡适. 胡适日记[M]. 合肥: 安徽教育出版社, 2001: 页码待补."
+    }
+  ]
+}

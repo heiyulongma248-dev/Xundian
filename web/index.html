@@ -66,12 +66,13 @@
   <div class="brand">
     <img class="logo" src="icon.png" alt="寻典" />
     <span class="title">寻典</span>
-    <span class="subtitle">引文定位与脚注助手 · 网页版 v1.0</span>
+    <span class="subtitle">引文定位与脚注助手 · 网页版 v1.5</span>
   </div>
   <nav class="tabs">
     <button class="tab-btn" data-tab="library">📚 我的书架</button>
     <button class="tab-btn active" data-tab="scan">📄 文档扫描</button>
     <button class="tab-btn" data-tab="lookup">🔍 单句查询</button>
+    <button class="tab-btn" data-tab="formats">📐 引用格式</button>
   </nav>
   <button class="btn-icon" id="btn-settings" title="设置">⚙</button>
 </header>
@@ -123,6 +124,11 @@
 
   <!-- ========== 文档扫描 ========== -->
   <section class="tab-panel active" id="tab-scan">
+    <div class="format-bar">
+      <span class="format-bar-label">📐 引用格式</span>
+      <select id="scan-format-select" class="format-select"></select>
+      <span class="format-bar-hint">这里选完，本次查询的所有结果都按这个格式渲染</span>
+    </div>
     <div class="panel-header">
       <h2>文档扫描</h2>
     </div>
@@ -151,6 +157,11 @@
 
   <!-- ========== 单句查询 ========== -->
   <section class="tab-panel" id="tab-lookup">
+    <div class="format-bar">
+      <span class="format-bar-label">📐 引用格式</span>
+      <select id="lookup-format-select" class="format-select"></select>
+      <span class="format-bar-hint">这里选完，本次查询的所有结果都按这个格式渲染</span>
+    </div>
     <div class="panel-header">
       <h2>单句查询</h2>
     </div>
@@ -179,6 +190,28 @@
     </div>
 
     <div id="lookup-results" class="result-list"></div>
+  </section>
+
+  <!-- ========== 引用格式 ========== -->
+  <section class="tab-panel" id="tab-formats">
+    <div class="panel-header">
+      <h2>引用格式</h2>
+      <div>
+        <button class="btn-secondary" id="btn-fmt-new-blank">＋ 空白新建</button>
+        <button class="btn-secondary" id="btn-fmt-infer" disabled title="v2 版本将支持完全自动识别引文格式 → 生成模板">📥 从样例反推（v2）</button>
+        <button class="btn-secondary" id="btn-fmt-import" disabled title="v2 版本将提供更友好的导入向导（拖拽/粘贴 JSON、AI 辅助生成）">📂 导入 JSON（v2）</button>
+        <input type="file" id="fmt-import-file" accept=".json" style="display:none;" />
+      </div>
+    </div>
+    <p class="hint">所有结果卡片和 .md 导出按"全局选择"的格式渲染。卡片上的 ▾ 按钮可临时切换单卡格式。</p>
+    <div id="fmt-list-builtin" class="fmt-list-section">
+      <h3>内置</h3>
+      <div class="fmt-list" id="fmt-list-builtin-items"></div>
+    </div>
+    <div id="fmt-list-user" class="fmt-list-section">
+      <h3>我的</h3>
+      <div class="fmt-list" id="fmt-list-user-items"></div>
+    </div>
   </section>
 </main>
 
@@ -235,6 +268,7 @@
 <script src="pdf-extract.js"></script>
 
 <script src="db.js"></script>
+<script src="formats.js"></script>
 <script src="fs-bridge.js"></script>
 <script src="py-bridge.js"></script>
 <script src="app.js"></script>

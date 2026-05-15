@@ -723,3 +723,37 @@ body.multiselect-active .book-card .actions { display: none; }
   font-weight: normal;
   margin-left: 4px;
 }
+
+/* 卡片上的格式 chip */
+.fmt-chip {
+  display: inline-block;
+  padding: 1px 8px;
+  margin-left: 8px;
+  background: #eff6ff;
+  color: #1d4ed8;
+  border: 1px solid #bfdbfe;
+  border-radius: 10px;
+  font-size: 10px;
+  cursor: pointer;
+}
+.fmt-chip:hover { background: #dbeafe; }
+
+/* chip 下拉菜单 */
+.fmt-chip-menu {
+  position: absolute;
+  background: white;
+  border: 1px solid #d0d7de;
+  border-radius: 4px;
+  padding: 4px 0;
+  box-shadow: 0 4px 12px rgba(0,0,0,0.1);
+  z-index: 1000;
+  font-size: 12px;
+  min-width: 180px;
+}
+.fmt-chip-menu .item {
+  padding: 6px 12px;
+  cursor: pointer;
+}
+.fmt-chip-menu .item:hover { background: #f0f6ff; }
+.fmt-chip-menu .item.active { font-weight: 600; color: #1d4ed8; }
+.fmt-chip-menu .divider { height: 1px; background: #eaeef2; margin: 4px 0; }

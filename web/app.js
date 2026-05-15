@@ -1749,6 +1749,101 @@ let lastScanResults = [];
 // 缓存）时，JS 端能直接按 book_file 拼一条 GB/T 7714 风格的"出处建议"。
 let _lastBooksMeta = {};
 
+// 每张已渲染卡片的元数据缓存。chip 切换 / 单卡重渲染时按 cardId 查回
+// meta + 页码字段，无需重新解析整个结果树。页面刷新即清空。
+const _cardMetaMap = new Map();
+
+// chip 点击：弹出格式下拉菜单；点空白处关菜单。
+document.addEventListener('click', (e) => {
+  const chip = e.target.closest('.fmt-chip');
+  if (chip) {
+    e.preventDefault();
+    e.stopPropagation();
+    showFmtChipMenu(chip);
+    return;
+  }
+  // 点 chip 之外的地方关闭已开的菜单
+  document.querySelectorAll('.fmt-chip-menu').forEach(el => el.remove());
+});
+
+// "📋 复制脚注"按钮代理：从 DOM 取 chip 当前渲染出来的脚注文本。
+document.addEventListener('click', async (e) => {
+  const btn = e.target.closest('.btn-copy-citation');
+  if (!btn) return;
+  const cardId = btn.dataset.cardId;
+  const textEl = document.querySelector(`.cand-citation-text[data-card-id="${cardId}"]`);
+  if (!textEl) return;
+  try {
+    await navigator.clipboard.writeText(textEl.textContent);
+    setStatus('脚注已复制到剪贴板');
+  } catch (err) {
+    showAlert('复制到剪贴板失败：' + err, '复制失败');
+  }
+});
+
+function showFmtChipMenu(chip) {
+  // 关闭其它已开菜单
+  document.querySelectorAll('.fmt-chip-menu').forEach(el => el.remove());
+
+  const cardId = chip.dataset.cardId;
+  const currentFmt = chip.dataset.currentFmt;
+  const builtins = window.xdFormats.BUILTIN_FORMATS;
+
+  const menu = document.createElement('div');
+  menu.className = 'fmt-chip-menu';
+  menu.innerHTML = builtins.map(f =>
+    `<div class="item${f.id === currentFmt ? ' active' : ''}" data-fmt-id="${escapeHtml(f.id)}">
+       ${f.id === currentFmt ? '✓ ' : '　 '}${escapeHtml(f.name)}
+     </div>`
+  ).join('');
+
+  // 定位在 chip 下方
+  const rect = chip.getBoundingClientRect();
+  menu.style.top = `${rect.bottom + window.scrollY + 4}px`;
+  menu.style.left = `${rect.left + window.scrollX}px`;
+  document.body.appendChild(menu);
+
+  menu.addEventListener('click', (e) => {
+    const item = e.target.closest('.item');
+    if (!item) return;
+    const newFmtId = item.dataset.fmtId;
+    applyCardFormatOverride(cardId, newFmtId);
+    menu.remove();
+  });
+}
+
+function applyCardFormatOverride(cardId, formatId) {
+  const cardData = _cardMetaMap.get(cardId);
+  if (!cardData) return;
+
+  const template = window.xdFormats.getBuiltinTemplate(formatId);
+  if (!template) return;
+
+  let newCitation;
+  try {
+    newCitation = window.xdFormats.renderCitation({
+      template,
+      meta: cardData.meta,
+      book_page: cardData.book_page,
+      book_page_end: cardData.book_page_end,
+      pdf_page: cardData.pdf_page,
+    });
+  } catch (err) {
+    console.error('卡片重渲染失败：', err);
+    return;
+  }
+
+  // 更新 chip 和 citation 文本（只动这张卡）
+  const fmtName = (window.xdFormats.BUILTIN_FORMATS.find(f => f.id === formatId) || {}).name || formatId;
+  const chip = document.querySelector(`.fmt-chip[data-card-id="${cardId}"]`);
+  if (chip) {
+    chip.dataset.currentFmt = formatId;
+    chip.textContent = `📐 ${fmtName} ▾`;
+  }
+  const textEl = document.querySelector(`.cand-citation-text[data-card-id="${cardId}"]`);
+  if (textEl) textEl.textContent = newCitation;
+}
+
 // 客户端版的 format_citation —— 必须和 pysrc/citation.py 一致
 function _formatCitationJs(meta, bookFile, bookPage, pdfPage) {
   const m = meta || {};
@@ -1776,6 +1871,9 @@ function renderResultCard(item) {
   const card = document.createElement('div');
   card.className = 'result-card';
 
+  const activeFormatId = window.xdFormats.getActiveFormatId();
+  const activeFormatName = (window.xdFormats.BUILTIN_FORMATS.find(f => f.id === activeFormatId) || {}).name || activeFormatId;
+
   const headerHtml = `
     <div class="header">
       <span class="status-badge ${st.cls}">${st.label}</span>
@@ -1784,9 +1882,35 @@ function renderResultCard(item) {
     <div class="quote">${escapeHtml(item.text)}</div>
   `;
 
-  const citationHtml = `
-    <div class="citation"><b>出处（建议）：</b>${escapeHtml(item.citation)}</div>
-  `;
+  // 主命中（best）信息，用作主卡片 chip / 复制按钮所属的 card 元数据。
+  // 主卡片的"出处（建议）"行原本只有 item.citation，没有 book_file/page，
+  // 这些值要从 best 取。如果 item 没有 candidates，主卡片就不挂 chip
+  // （没法本地重渲染），保持旧的静态展示。
+  const best = (item.candidates && item.candidates.length > 0) ? item.candidates[0] : null;
+  const mainCardId = `card-${item.quote_id || 'q'}-main`;
+
+  let citationHtml;
+  if (best) {
+    _cardMetaMap.set(mainCardId, {
+      meta: _lastBooksMeta[best.book_file] || {},
+      book_page: best.book_page,
+      book_page_end: best.book_page_end,
+      pdf_page: best.pdf_page,
+      book_file: best.book_file,
+    });
+    citationHtml = `
+      <div class="citation" data-card-id="${mainCardId}">
+        <span class="cand-citation-label" data-card-id="${mainCardId}">
+          <b>出处（建议）：</b><button class="fmt-chip" data-card-id="${mainCardId}" data-current-fmt="${escapeHtml(activeFormatId)}" type="button">📐 ${escapeHtml(activeFormatName)} ▾</button>
+        </span>
+        <span class="cand-citation-text" data-card-id="${mainCardId}">${escapeHtml(item.citation)}</span>
+      </div>
+    `;
+  } else {
+    citationHtml = `
+      <div class="citation"><b>出处（建议）：</b>${escapeHtml(item.citation)}</div>
+    `;
+  }
 
   let contextHtml = '';
   if (item.context_before || item.context_after) {
@@ -1797,8 +1921,7 @@ function renderResultCard(item) {
   }
 
   let bestHtml = '';
-  if (item.candidates && item.candidates.length > 0) {
-    const best = item.candidates[0];
+  if (best) {
     const bp = best.book_page != null ? `书内 p${best.book_page}${best.is_cross_page ? `–${best.book_page_end}` : ''}` : '书内页码未识别';
     const cross = best.is_cross_page ? '<span class="cross-page-tag">跨页</span> ' : '';
     bestHtml = `
@@ -1808,7 +1931,7 @@ function renderResultCard(item) {
       <div class="ctx-label"><b>书中片段：</b></div>
       <div class="snippet">……${escapeHtml(best.snippet_before)}<span class="highlight">${escapeHtml(item.text)}</span>${escapeHtml(best.snippet_after)}……</div>
       <div class="actions">
-        <button class="btn-tiny" data-act="copy" data-payload="${escapeHtml(item.citation)}">📋 复制脚注</button>
+        <button class="btn-tiny btn-copy-citation" data-card-id="${mainCardId}" type="button">📋 复制脚注</button>
         <button class="btn-tiny" data-act="open-pdf" data-file="${escapeHtml(best.book_file)}" data-page="${best.pdf_page}">📖 在 PDF 中查看</button>
       </div>
     `;
@@ -1826,6 +1949,8 @@ function renderResultCard(item) {
       <div class="alt-cands">
         <div class="alt-title">其他疑似候选（${others.length} 条，供人工对照）：</div>
         ${others.map((c, i) => {
+          const candIdx = i + 1;  // others[0] = candidate index 1（候选 2）
+          const cardId = `card-${item.quote_id || 'q'}-${candIdx}`;
           const bp = c.book_page != null ? `书内 p${c.book_page}${c.is_cross_page ? `–${c.book_page_end}` : ''}` : '书内页码未识别';
           const cross = c.is_cross_page ? '<span class="cross-page-tag">跨页</span> ' : '';
           // Python 端理应给每个候选附带 citation；如果没有（例如 SW 还在用
@@ -1833,17 +1958,29 @@ function renderResultCard(item) {
           // 保证候选卡片永远和主命中一样有"出处（建议）"和"复制脚注"。
           const candCitation = c.citation
             || _formatCitationJs(_lastBooksMeta[c.book_file], c.book_file, c.book_page, c.pdf_page);
+          _cardMetaMap.set(cardId, {
+            meta: _lastBooksMeta[c.book_file] || {},
+            book_page: c.book_page,
+            book_page_end: c.book_page_end,
+            pdf_page: c.pdf_page,
+            book_file: c.book_file,
+          });
           return `
             <div class="alt-cand-card">
               <div class="alt-cand-header"><b>候选 ${i + 2}</b></div>
-              <div class="citation" style="margin-top:6px;"><b>出处（建议）：</b>${escapeHtml(candCitation)}</div>
+              <div class="citation" style="margin-top:6px;" data-card-id="${cardId}">
+                <span class="cand-citation-label" data-card-id="${cardId}">
+                  <b>出处（建议）：</b><button class="fmt-chip" data-card-id="${cardId}" data-current-fmt="${escapeHtml(activeFormatId)}" type="button">📐 ${escapeHtml(activeFormatName)} ▾</button>
+                </span>
+                <span class="cand-citation-text" data-card-id="${cardId}">${escapeHtml(candCitation)}</span>
+              </div>
               <div class="ctx-label" style="margin-top:8px;"><b>命中位置：</b></div>
               <div class="ctx-text">${cross}${escapeHtml(c.book_file)} · PDF p${c.pdf_page}${c.is_cross_page ? `–${c.pdf_page_end}` : ''} · ${bp}</div>
               <div class="scores">主分 ${c.score.toFixed(2)} · 语境分 ${c.ctx_score.toFixed(2)} · 综合 ${c.final_score.toFixed(2)}</div>
               <div class="ctx-label"><b>书中片段：</b></div>
               <div class="snippet">……${escapeHtml(c.snippet_before)}<span class="highlight">${escapeHtml(item.text)}</span>${escapeHtml(c.snippet_after)}……</div>
               <div class="actions">
-                <button class="btn-tiny" data-act="copy" data-payload="${escapeHtml(candCitation)}">📋 复制脚注</button>
+                <button class="btn-tiny btn-copy-citation" data-card-id="${cardId}" type="button">📋 复制脚注</button>
                 <button class="btn-tiny" data-act="open-pdf" data-file="${escapeHtml(c.book_file)}" data-page="${c.pdf_page}">📖 在 PDF 中查看</button>
               </div>
             </div>
@@ -1855,17 +1992,12 @@ function renderResultCard(item) {
 
   card.innerHTML = headerHtml + citationHtml + contextHtml + bestHtml + altHtml;
 
+  // open-pdf 还是绑在 data-act 上；copy 改走顶层 .btn-copy-citation 代理，
+  // 以便随 chip 状态读取 DOM 文本。
   card.querySelectorAll('button[data-act]').forEach((btn) => {
     btn.addEventListener('click', async () => {
       const act = btn.dataset.act;
-      if (act === 'copy') {
-        try {
-          await navigator.clipboard.writeText(btn.dataset.payload);
-          setStatus('脚注已复制到剪贴板');
-        } catch (e) {
-          showAlert('复制到剪贴板失败：' + e, '复制失败');
-        }
-      } else if (act === 'open-pdf') {
+      if (act === 'open-pdf') {
         const r = await callApi('open_pdf_at_page', btn.dataset.file, parseInt(btn.dataset.page));
         if (r && r.warning) {
           showAlert(r.warning, '提示');
